@@ -13,3 +13,6 @@ if not distances or any(d <= 0 for d in distances):
 # calculate GMR (Geometric Mean Radius)
 
 #sakdlasdjlasdjalkdjadla
+#EAFAJSFKAJDS
+#sADASDKLA
+#aSDASD
