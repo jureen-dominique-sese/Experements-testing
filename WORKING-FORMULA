@@ -105,16 +105,7 @@ class GMDGMRApp:
             R_per_km = (rho * 1000) / (area * n_conductors) if n_conductors > 0 else 0
             R_total = R_per_km * self.length
             
-            if len(gmr_values) >= 2:
-                avg_gmd = np.mean(list(gmd_values.values())) if gmd_values else 1.0
-                avg_gmr = np.mean(list(gmr_values.values()))
-                L_per_km = 2e-7 * np.log(avg_gmd / avg_gmr) * 1000
-                L_total = L_per_km * self.length
-                r_equiv = self.conductor_radius * (n_conductors ** 0.5) if n_conductors > 0 else self.conductor_radius
-                C_per_km = (2 * np.pi * 8.854e-12 * 1000) / np.log(avg_gmd / r_equiv)
-                C_total = C_per_km * self.length
-            else:
-                L_per_km = L_total = C_per_km = C_total = 0
+            
             
             omega = 2 * np.pi * self.freq
             XL = omega * L_total if L_total > 0 else 0
@@ -122,8 +113,6 @@ class GMDGMRApp:
             
             results["params"] = {
                 "R_per_km": R_per_km, "R_total": R_total,
-                "L_per_km": L_per_km * 1000, "L_total": L_total * 1000,
-                "C_per_km": C_per_km * 1e9, "C_total": C_total * 1e6,
                 "XL": XL, "XC": XC
             }
         
