@@ -814,13 +814,242 @@ let mousePos = {x: 0, y: 0};
 let shiftKeyPressed = false;
 
 // Track keyboard state
+let inputDialog = null;
+
 window.addEventListener('keydown', (e) => {
   if (e.key === 'Shift') shiftKeyPressed = true;
+  
+  // TAB to open input dialog for direct length input
+  if (e.key === 'Tab' && lastPlacedPoint) {
+    e.preventDefault();
+    openLengthInputDialog();
+  }
+  
+  // ESC key to clear pointer and restart
+  if (e.key === 'Escape') {
+    lastPlacedPoint = null;
+    snapPoint = null;
+    mousePos = {x: 0, y: 0};
+    redraw();
+    
+    const display = document.getElementById('coordDisplay');
+    display.textContent = 'Pointer cleared • Ready for new bundle';
+    display.style.background = 'rgba(16, 124, 16, 0.9)';
+    display.style.opacity = '1';
+    
+    setTimeout(() => {
+      display.style.opacity = '0';
+    }, 2000);
+  }
 });
 
 window.addEventListener('keyup', (e) => {
   if (e.key === 'Shift') shiftKeyPressed = false;
 });
+
+function openLengthInputDialog() {
+  if (inputDialog) return; // Prevent multiple dialogs
+  
+  // Create overlay
+  const overlay = document.createElement('div');
+  overlay.id = 'input-overlay';
+  overlay.style.cssText = `
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.5);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1000;
+  `;
+  
+  // Create dialog
+  const dialog = document.createElement('div');
+  dialog.style.cssText = `
+    background: white;
+    border-radius: 8px;
+    padding: 24px;
+    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
+    min-width: 300px;
+    font-family: Inter, sans-serif;
+  `;
+  
+  dialog.innerHTML = `
+    <div style="margin-bottom: 16px;">
+      <h3 style="font-size: 16px; font-weight: 600; color: #1f1f1f; margin-bottom: 8px;">Enter Line Parameters</h3>
+    </div>
+    
+    <div style="margin-bottom: 16px;">
+      <label style="display: block; font-size: 13px; font-weight: 500; color: #1f1f1f; margin-bottom: 6px;">Length</label>
+      <input 
+        id="length-input" 
+        type="number" 
+        step="0.001" 
+        placeholder="Enter distance"
+        style="
+          width: 100%;
+          padding: 8px 10px;
+          border: 1px solid #e1dfdd;
+          border-radius: 4px;
+          font-size: 13px;
+          font-family: Consolas, Monaco, monospace;
+          box-sizing: border-box;
+        "
+      >
+    </div>
+    
+    <div style="margin-bottom: 16px;">
+      <label style="display: block; font-size: 13px; font-weight: 500; color: #1f1f1f; margin-bottom: 6px;">Angle (degrees)</label>
+      <input 
+        id="angle-input" 
+        type="number" 
+        step="0.1" 
+        value="0"
+        min="0"
+        max="360"
+        placeholder="0 to 360"
+        style="
+          width: 100%;
+          padding: 8px 10px;
+          border: 1px solid #e1dfdd;
+          border-radius: 4px;
+          font-size: 13px;
+          font-family: Consolas, Monaco, monospace;
+          box-sizing: border-box;
+        "
+      >
+      <p style="font-size: 11px; color: #605e5c; margin: 6px 0 0 0;">0° = Right, 90° = Up, 180° = Left, 270° = Down</p>
+    </div>
+    
+    <div style="display: flex; gap: 10px;">
+      <button id="confirm-btn" style="
+        flex: 1;
+        padding: 8px 16px;
+        background: #0078d4;
+        color: white;
+        border: none;
+        border-radius: 4px;
+        font-size: 13px;
+        font-weight: 500;
+        cursor: pointer;
+        transition: all 0.15s ease;
+      ">Place Point</button>
+      <button id="cancel-btn" style="
+        flex: 1;
+        padding: 8px 16px;
+        background: #fafafa;
+        color: #1f1f1f;
+        border: 1px solid #e1dfdd;
+        border-radius: 4px;
+        font-size: 13px;
+        font-weight: 500;
+        cursor: pointer;
+        transition: all 0.15s ease;
+      ">Cancel</button>
+    </div>
+  `;
+  
+  overlay.appendChild(dialog);
+  document.body.appendChild(overlay);
+  
+  const lengthInput = document.getElementById('length-input');
+  const angleInput = document.getElementById('angle-input');
+  const confirmBtn = document.getElementById('confirm-btn');
+  const cancelBtn = document.getElementById('cancel-btn');
+  
+  // Calculate angle based on current mouse position
+  const dx = mousePos.x - lastPlacedPoint.x;
+  const dy = lastPlacedPoint.y - mousePos.y; // Flip Y for standard angle measurement
+  const angle = Math.atan2(dy, dx) * (180 / Math.PI);
+  const normalizedAngle = angle < 0 ? angle + 360 : angle;
+  angleInput.value = normalizedAngle.toFixed(1);
+  
+  lengthInput.focus();
+  inputDialog = overlay;
+  
+  // Hover effects
+  confirmBtn.addEventListener('mouseover', () => {
+    confirmBtn.style.background = '#106ebe';
+  });
+  confirmBtn.addEventListener('mouseout', () => {
+    confirmBtn.style.background = '#0078d4';
+  });
+  
+  cancelBtn.addEventListener('mouseover', () => {
+    cancelBtn.style.background = '#f5f5f5';
+  });
+  cancelBtn.addEventListener('mouseout', () => {
+    cancelBtn.style.background = '#fafafa';
+  });
+  
+  function closeDialog() {
+    if (inputDialog) {
+      inputDialog.remove();
+      inputDialog = null;
+    }
+  }
+  
+  function placePointWithLength() {
+    const length = parseFloat(lengthInput.value);
+    const angle = parseFloat(angleInput.value);
+    
+    if (!length || length <= 0) {
+      alert('Please enter a valid positive length');
+      return;
+    }
+    
+    if (isNaN(angle) || angle < 0 || angle > 360) {
+      alert('Please enter a valid angle (0-360)');
+      return;
+    }
+    
+    // Convert angle to radians (standard math convention: 0° = right)
+    const radians = (angle * Math.PI) / 180;
+    
+    // Calculate new point using angle and length
+    const newX = lastPlacedPoint.x + (length * scaleX * Math.cos(radians));
+    const newY = lastPlacedPoint.y - (length * scaleY * Math.sin(radians)); // Flip Y
+    
+    // Convert to coordinates
+    const coordX = ((newX - origin.x) / scaleX).toFixed(3);
+    const coordY = ((origin.y - newY) / scaleY).toFixed(3);
+    
+    // Place the point
+    (async () => {
+      await pywebview.api.add_point(coordX, coordY, activeBundle);
+      bundles[activeBundle].push([parseFloat(coordX), parseFloat(coordY)]);
+      
+      lastPlacedPoint = {x: newX, y: newY};
+      
+      animatePointPlacement(newX, newY, colors[activeBundle]);
+      updateAllPoints();
+      redraw();
+      await updateResults();
+    })();
+    
+    closeDialog();
+  }
+  
+  confirmBtn.addEventListener('click', placePointWithLength);
+  cancelBtn.addEventListener('click', closeDialog);
+  
+  // Enter key to confirm
+  lengthInput.addEventListener('keypress', (e) => {
+    if (e.key === 'Enter') {
+      placePointWithLength();
+    }
+  });
+  
+  // Escape to cancel
+  lengthInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') {
+      closeDialog();
+    }
+  });
+}
 
 function updateAllPoints() {
   allPoints = [];
@@ -1040,6 +1269,20 @@ function drawBundleConnections(points, color) {
   ctx.globalAlpha = 1;
 }
 
+function getBundleCenter(points) {
+  if (points.length === 0) return null;
+  
+  let cx = 0, cy = 0;
+  points.forEach(([x, y]) => {
+    cx += x;
+    cy += y;
+  });
+  cx /= points.length;
+  cy /= points.length;
+  
+  return {x: cx, y: cy};
+}
+
 function drawBundleCircle(points, color) {
   if (points.length < 2) return;
   
@@ -1072,6 +1315,79 @@ function drawBundleCircle(points, color) {
   
   ctx.setLineDash([]);
   ctx.globalAlpha = 1;
+}
+
+function drawGMDLines() {
+  // Get all bundles with points
+  const bundlesWithPoints = Object.keys(bundles).filter(b => bundles[b].length > 0);
+  
+  if (bundlesWithPoints.length < 2) return;
+  
+  // GMD pairs to display
+  const pairs = [
+    ['A', 'B'],
+    ['B', 'C'],
+    ['A', 'C']
+  ];
+  
+  pairs.forEach(([b1, b2]) => {
+    if (bundles[b1].length > 0 && bundles[b2].length > 0) {
+      // Get bundle centers
+      const c1 = getBundleCenter(bundles[b1]);
+      const c2 = getBundleCenter(bundles[b2]);
+      
+      const x1 = origin.x + c1.x * scaleX;
+      const y1 = origin.y - c1.y * scaleY;
+      const x2 = origin.x + c2.x * scaleX;
+      const y2 = origin.y - c2.y * scaleY;
+      
+      // Calculate GMD (geometric mean distance between bundles)
+      const dx = c2.x - c1.x;
+      const dy = c2.y - c1.y;
+      const gmd = Math.sqrt(dx * dx + dy * dy);
+      
+      const mx = (x1 + x2) / 2;
+      const my = (y1 + y2) / 2;
+      
+      // Draw dashed line
+      ctx.strokeStyle = '#FF6B35';
+      ctx.lineWidth = 2.5;
+      ctx.setLineDash([5, 5]);
+      ctx.globalAlpha = 0.8;
+      ctx.beginPath();
+      ctx.moveTo(x1, y1);
+      ctx.lineTo(x2, y2);
+      ctx.stroke();
+      ctx.globalAlpha = 1;
+      ctx.setLineDash([]);
+      
+      // Draw bundle center markers
+      ctx.fillStyle = '#FF6B35';
+      ctx.globalAlpha = 0.6;
+      ctx.beginPath();
+      ctx.arc(x1, y1, 5, 0, 2 * Math.PI);
+      ctx.fill();
+      ctx.beginPath();
+      ctx.arc(x2, y2, 5, 0, 2 * Math.PI);
+      ctx.fill();
+      ctx.globalAlpha = 1;
+      
+      // Draw GMD label box
+      ctx.fillStyle = '#FFF5F0';
+      ctx.fillRect(mx - 65, my - 20, 130, 28);
+      
+      ctx.strokeStyle = '#FF6B35';
+      ctx.lineWidth = 2;
+      ctx.strokeRect(mx - 65, my - 20, 130, 28);
+      
+      // GMD label text
+      ctx.fillStyle = '#FF6B35';
+      ctx.font = 'bold 13px Consolas, Monaco, monospace';
+      ctx.textAlign = 'center';
+      ctx.fillText(`GMD ${b1}-${b2}: ${gmd.toFixed(4)}`, mx, my + 3);
+      ctx.textAlign = 'left';
+    }
+  });
 }
 
 function drawPoints() {
@@ -1223,6 +1539,25 @@ canvas.addEventListener('click', async (e) => {
 canvas.addEventListener('mouseleave', () => {
   snapPoint = null;
   document.getElementById('coordDisplay').style.opacity = '0';
+});
+
+// ESC key to clear pointer and restart
+window.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') {
+    lastPlacedPoint = null;
+    snapPoint = null;
+    mousePos = {x: 0, y: 0};
+    redraw();
+    
+    const display = document.getElementById('coordDisplay');
+    display.textContent = 'Pointer cleared • Ready for new bundle';
+    display.style.background = 'rgba(16, 124, 16, 0.9)';
+    display.style.opacity = '1';
+    
+    setTimeout(() => {
+      display.style.opacity = '0';
+    }, 2000);
+  }
 });
 
 // ===== Results Display =====
