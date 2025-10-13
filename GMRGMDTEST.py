@@ -804,11 +804,23 @@ let activeBundle = 'A';
 let scaleX = 40, scaleY = 40;
 const origin = {x: 80, y: canvas.height - 80};
 
-// ===== AutoCAD-style Snap System =====
+// ===== Snap & Preview System =====
 const SNAP_RADIUS = 15;
 const SNAP_COLOR = "#FFB900";
 let snapPoint = null;
 let allPoints = [];
+let lastPlacedPoint = null;
+let mousePos = {x: 0, y: 0};
+let shiftKeyPressed = false;
+
+// Track keyboard state
+window.addEventListener('keydown', (e) => {
+  if (e.key === 'Shift') shiftKeyPressed = true;
+});
+
+window.addEventListener('keyup', (e) => {
+  if (e.key === 'Shift') shiftKeyPressed = false;
+});
 
 function updateAllPoints() {
   allPoints = [];
@@ -846,6 +858,24 @@ function findSnapPoint(mouseX, mouseY) {
   return nearest;
 }
 
+function getConstrainedPoint(currentX, currentY) {
+  if (!shiftKeyPressed || !lastPlacedPoint) {
+    return {x: currentX, y: currentY, type: 'free'};
+  }
+  
+  const dx = currentX - lastPlacedPoint.x;
+  const dy = currentY - lastPlacedPoint.y;
+  const absDx = Math.abs(dx);
+  const absDy = Math.abs(dy);
+  
+  // If closer to horizontal, constrain to Y
+  if (absDx > absDy) {
+    return {x: currentX, y: lastPlacedPoint.y, type: 'horizontal'};
+  } else {
+    return {x: lastPlacedPoint.x, y: currentY, type: 'vertical'};
+  }
+}
+
 function drawSnapIndicator() {
   if (!snapPoint) return;
   
@@ -863,6 +893,58 @@ function drawSnapIndicator() {
   ctx.fill();
   
   ctx.globalAlpha = 1;
+}
+
+function drawPreviewLine() {
+  if (!lastPlacedPoint) return;
+  
+  const constrainedPos = getConstrainedPoint(mousePos.x, mousePos.y);
+  const targetX = constrainedPos.x;
+  const targetY = constrainedPos.y;
+  
+  // Draw preview line
+  ctx.beginPath();
+  ctx.moveTo(lastPlacedPoint.x, lastPlacedPoint.y);
+  ctx.lineTo(targetX, targetY);
+  ctx.strokeStyle = colors[activeBundle];
+  ctx.lineWidth = 2;
+  ctx.setLineDash([5, 5]);
+  ctx.globalAlpha = 0.6;
+  ctx.stroke();
+  ctx.globalAlpha = 1;
+  ctx.setLineDash([]);
+  
+  // Calculate distance
+  const dx = targetX - lastPlacedPoint.x;
+  const dy = targetY - lastPlacedPoint.y;
+  const canvasDistPx = Math.sqrt(dx * dx + dy * dy);
+  const canvasDistUnits = canvasDistPx / scaleX;
+  
+  // Draw constraint indicator if shift pressed
+  if (shiftKeyPressed) {
+    if (constrainedPos.type === 'horizontal') {
+      ctx.fillStyle = colors[activeBundle];
+      ctx.font = 'bold 12px Inter, sans-serif';
+      ctx.fillText('HORIZONTAL', targetX + 10, targetY - 15);
+    } else {
+      ctx.fillStyle = colors[activeBundle];
+      ctx.font = 'bold 12px Inter, sans-serif';
+      ctx.fillText('VERTICAL', targetX + 10, targetY - 15);
+    }
+  }
+  
+  // Draw distance label
+  const midX = (lastPlacedPoint.x + targetX) / 2;
+  const midY = (lastPlacedPoint.y + targetY) / 2;
+  
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.9)';
+  ctx.fillRect(midX - 35, midY - 25, 70, 24);
+  
+  ctx.fillStyle = colors[activeBundle];
+  ctx.font = 'bold 12px Consolas, Monaco, monospace';
+  ctx.textAlign = 'center';
+  ctx.fillText(canvasDistUnits.toFixed(3), midX, midY - 8);
+  ctx.textAlign = 'left';
 }
 
 // ===== Bundle Management =====
@@ -917,37 +999,44 @@ function drawBundleConnections(points, color) {
   if (points.length < 2) return;
   
   ctx.strokeStyle = color;
-  ctx.lineWidth = 1.5;
-  ctx.setLineDash([4, 4]);
-  ctx.globalAlpha = 0.4;
+  ctx.lineWidth = 2;
+  ctx.globalAlpha = 1;
   
-  for (let i = 0; i < points.length; i++) {
-    for (let j = i + 1; j < points.length; j++) {
-      const [x1, y1] = points[i];
-      const [x2, y2] = points[j];
-      const cx1 = origin.x + x1 * scaleX;
-      const cy1 = origin.y - y1 * scaleY;
-      const cx2 = origin.x + x2 * scaleX;
-      const cy2 = origin.y - y2 * scaleY;
-      
-      ctx.beginPath();
-      ctx.moveTo(cx1, cy1);
-      ctx.lineTo(cx2, cy2);
-      ctx.stroke();
-      
-      const mx = (cx1 + cx2) / 2;
-      const my = (cy1 + cy2) / 2;
-      const dist = Math.sqrt((x2-x1)**2 + (y2-y1)**2);
-      
-      ctx.globalAlpha = 0.7;
-      ctx.fillStyle = color;
-      ctx.font = "600 10px Inter, sans-serif";
-      ctx.fillText(dist.toFixed(3), mx + 4, my - 4);
-      ctx.globalAlpha = 0.4;
-    }
+  // Draw actual line connections
+  for (let i = 0; i < points.length - 1; i++) {
+    const [x1, y1] = points[i];
+    const [x2, y2] = points[i + 1];
+    const cx1 = origin.x + x1 * scaleX;
+    const cy1 = origin.y - y1 * scaleY;
+    const cx2 = origin.x + x2 * scaleX;
+    const cy2 = origin.y - y2 * scaleY;
+    
+    ctx.beginPath();
+    ctx.moveTo(cx1, cy1);
+    ctx.lineTo(cx2, cy2);
+    ctx.stroke();
+    
+    // Draw segment distance
+    const dx = x2 - x1;
+    const dy = y2 - y1;
+    const dist = Math.sqrt(dx * dx + dy * dy);
+    
+    const mx = (cx1 + cx2) / 2;
+    const my = (cy1 + cy2) / 2;
+    
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.95)';
+    ctx.fillRect(mx - 30, my - 20, 60, 20);
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 1;
+    ctx.strokeRect(mx - 30, my - 20, 60, 20);
+    
+    ctx.fillStyle = color;
+    ctx.font = 'bold 11px Consolas, Monaco, monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText(dist.toFixed(3), mx, my - 7);
+    ctx.textAlign = 'left';
   }
   
-  ctx.setLineDash([]);
   ctx.globalAlpha = 1;
 }
 
@@ -1010,7 +1099,7 @@ function drawPoints() {
       
       ctx.fillStyle = "rgba(255,255,255,0.95)";
       const label = b + (i + 1);
-      ctx.font = "600 11px Inter, sans-serif";
+      ctx.font = "bold 11px Inter, sans-serif";
       const metrics = ctx.measureText(label);
       const labelWidth = metrics.width + 8;
       
@@ -1031,13 +1120,14 @@ function redraw() {
   
   for (let b in bundles) {
     if (bundles[b].length > 0) {
-      drawBundleConnections(bundles[b], colors[b]);
       drawBundleCircle(bundles[b], colors[b]);
+      drawBundleConnections(bundles[b], colors[b]);
     }
   }
   
   drawPoints();
   drawSnapIndicator();
+  drawPreviewLine();
 }
 
 // ===== Animation =====
@@ -1073,6 +1163,8 @@ canvas.addEventListener('mousemove', (e) => {
   const mx = (e.clientX - rect.left) * scaleFactorX;
   const my = (e.clientY - rect.top) * scaleFactorY;
   
+  mousePos = {x: mx, y: my};
+  
   snapPoint = findSnapPoint(mx, my);
   
   const x = ((mx - origin.x) / scaleX).toFixed(3);
@@ -1083,6 +1175,9 @@ canvas.addEventListener('mousemove', (e) => {
   if (snapPoint) {
     display.textContent = `SNAP: ${snapPoint.bundle}${snapPoint.index + 1} (${snapPoint.coordX.toFixed(3)}, ${snapPoint.coordY.toFixed(3)})`;
     display.style.background = 'rgba(255, 185, 0, 0.9)';
+  } else if (lastPlacedPoint && shiftKeyPressed) {
+    display.textContent = `SHIFT: Constrained placement | x: ${x}, y: ${y}`;
+    display.style.background = 'rgba(0, 120, 212, 0.9)';
   } else {
     display.textContent = `x: ${x}, y: ${y}`;
     display.style.background = 'rgba(0, 0, 0, 0.85)';
@@ -1100,25 +1195,26 @@ canvas.addEventListener('click', async (e) => {
   const mx = (e.clientX - rect.left) * scaleFactorX;
   const my = (e.clientY - rect.top) * scaleFactorY;
   
+  let finalPos;
   let x, y;
   
   if (snapPoint) {
     x = snapPoint.coordX.toFixed(3);
     y = snapPoint.coordY.toFixed(3);
+    finalPos = {x: snapPoint.x, y: snapPoint.y};
   } else {
-    x = ((mx - origin.x) / scaleX).toFixed(3);
-    y = ((origin.y - my) / scaleY).toFixed(3);
+    const constrainedPos = getConstrainedPoint(mx, my);
+    x = ((constrainedPos.x - origin.x) / scaleX).toFixed(3);
+    y = ((origin.y - constrainedPos.y) / scaleY).toFixed(3);
+    finalPos = {x: constrainedPos.x, y: constrainedPos.y};
   }
   
   await pywebview.api.add_point(x, y, activeBundle);
   bundles[activeBundle].push([parseFloat(x), parseFloat(y)]);
   
-  animatePointPlacement(
-    origin.x + parseFloat(x) * scaleX,
-    origin.y - parseFloat(y) * scaleY,
-    colors[activeBundle]
-  );
+  lastPlacedPoint = finalPos;
   
+  animatePointPlacement(finalPos.x, finalPos.y, colors[activeBundle]);
   updateAllPoints();
   redraw();
   await updateResults();
@@ -1141,7 +1237,7 @@ async function updateResults() {
           <path d="M10 12a2 2 0 100-4 2 2 0 000 4z"/>
           <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm0-2a6 6 0 100-12 6 6 0 000 12z"/>
         </svg>
-        <p class="empty-text">Click on the canvas to place conductor points and see calculations</p>
+        <p class="empty-text">Click on the canvas to place conductor points • Hold SHIFT for 90° constraints</p>
       </div>`;
     return;
   }
@@ -1265,6 +1361,7 @@ async function updateLineParams() {
 async function clearCurrent() {
   await pywebview.api.clear_bundle(activeBundle);
   bundles[activeBundle] = [];
+  lastPlacedPoint = null;
   updateAllPoints();
   redraw();
   await updateResults();
@@ -1273,6 +1370,7 @@ async function clearCurrent() {
 async function clearAll() {
   await pywebview.api.clear_all();
   bundles = {A: [], B: [], C: []};
+  lastPlacedPoint = null;
   updateAllPoints();
   redraw();
   await updateResults();
