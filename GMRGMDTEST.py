@@ -804,7 +804,68 @@ let activeBundle = 'A';
 let scaleX = 40, scaleY = 40;
 const origin = {x: 80, y: canvas.height - 80};
 
-// Set active bundle
+// ===== AutoCAD-style Snap System =====
+const SNAP_RADIUS = 15;
+const SNAP_COLOR = "#FFB900";
+let snapPoint = null;
+let allPoints = [];
+
+function updateAllPoints() {
+  allPoints = [];
+  for (let bundle in bundles) {
+    bundles[bundle].forEach(([x, y], i) => {
+      const canvasX = origin.x + x * scaleX;
+      const canvasY = origin.y - y * scaleY;
+      allPoints.push({
+        x: canvasX,
+        y: canvasY,
+        bundle: bundle,
+        index: i,
+        coordX: x,
+        coordY: y
+      });
+    });
+  }
+}
+
+function findSnapPoint(mouseX, mouseY) {
+  let nearest = null;
+  let minDist = SNAP_RADIUS;
+  
+  for (let p of allPoints) {
+    const dx = p.x - mouseX;
+    const dy = p.y - mouseY;
+    const dist = Math.sqrt(dx * dx + dy * dy);
+    
+    if (dist < minDist) {
+      minDist = dist;
+      nearest = p;
+    }
+  }
+  
+  return nearest;
+}
+
+function drawSnapIndicator() {
+  if (!snapPoint) return;
+  
+  ctx.beginPath();
+  ctx.arc(snapPoint.x, snapPoint.y, 12, 0, 2 * Math.PI);
+  ctx.strokeStyle = SNAP_COLOR;
+  ctx.lineWidth = 2.5;
+  ctx.globalAlpha = 0.8;
+  ctx.stroke();
+  
+  ctx.beginPath();
+  ctx.arc(snapPoint.x, snapPoint.y, 6, 0, 2 * Math.PI);
+  ctx.fillStyle = SNAP_COLOR;
+  ctx.globalAlpha = 0.3;
+  ctx.fill();
+  
+  ctx.globalAlpha = 1;
+}
+
+// ===== Bundle Management =====
 function setActiveBundle(bundle) {
   activeBundle = bundle;
   document.querySelectorAll('.bundle-btn').forEach(btn => {
@@ -812,12 +873,11 @@ function setActiveBundle(bundle) {
   });
 }
 
-// Draw grid with modern styling
+// ===== Drawing Functions =====
 function drawGrid() {
   ctx.strokeStyle = "#f5f5f5";
   ctx.lineWidth = 1;
   
-  // Grid lines
   for (let x = 0; x < canvas.width; x += scaleX) {
     ctx.beginPath();
     ctx.moveTo(x, 0);
@@ -831,7 +891,6 @@ function drawGrid() {
     ctx.stroke();
   }
   
-  // Axes with shadow
   ctx.strokeStyle = "#424242";
   ctx.lineWidth = 2;
   ctx.shadowColor = "rgba(0,0,0,0.1)";
@@ -849,13 +908,11 @@ function drawGrid() {
   
   ctx.shadowBlur = 0;
   
-  // Origin label
   ctx.fillStyle = "#424242";
   ctx.font = "600 12px Inter, sans-serif";
   ctx.fillText("(0, 0)", origin.x + 8, origin.y - 8);
 }
 
-// Draw distance lines between points in a bundle
 function drawBundleConnections(points, color) {
   if (points.length < 2) return;
   
@@ -864,7 +921,6 @@ function drawBundleConnections(points, color) {
   ctx.setLineDash([4, 4]);
   ctx.globalAlpha = 0.4;
   
-  // Draw all connections
   for (let i = 0; i < points.length; i++) {
     for (let j = i + 1; j < points.length; j++) {
       const [x1, y1] = points[i];
@@ -879,7 +935,6 @@ function drawBundleConnections(points, color) {
       ctx.lineTo(cx2, cy2);
       ctx.stroke();
       
-      // Draw distance label at midpoint
       const mx = (cx1 + cx2) / 2;
       const my = (cy1 + cy2) / 2;
       const dist = Math.sqrt((x2-x1)**2 + (y2-y1)**2);
@@ -888,7 +943,7 @@ function drawBundleConnections(points, color) {
       ctx.fillStyle = color;
       ctx.font = "600 10px Inter, sans-serif";
       ctx.fillText(dist.toFixed(3), mx + 4, my - 4);
-      ctx.globalAlpha = 1;
+      ctx.globalAlpha = 0.4;
     }
   }
   
@@ -896,11 +951,9 @@ function drawBundleConnections(points, color) {
   ctx.globalAlpha = 1;
 }
 
-// Draw enclosing circle for bundle
 function drawBundleCircle(points, color) {
   if (points.length < 2) return;
   
-  // Calculate centroid
   let cx = 0, cy = 0;
   points.forEach(([x, y]) => {
     cx += x;
@@ -909,7 +962,6 @@ function drawBundleCircle(points, color) {
   cx /= points.length;
   cy /= points.length;
   
-  // Find max radius
   let maxR = 0;
   points.forEach(([x, y]) => {
     const dist = Math.sqrt((x - cx) ** 2 + (y - cy) ** 2);
@@ -918,9 +970,8 @@ function drawBundleCircle(points, color) {
   
   const centerX = origin.x + cx * scaleX;
   const centerY = origin.y - cy * scaleY;
-  const radius = maxR * scaleX * 1.2; // 20% padding
+  const radius = maxR * scaleX * 1.2;
   
-  // Draw dashed circle
   ctx.strokeStyle = color;
   ctx.lineWidth = 2;
   ctx.setLineDash([8, 4]);
@@ -934,32 +985,17 @@ function drawBundleCircle(points, color) {
   ctx.globalAlpha = 1;
 }
 
-// Main redraw function
-function redraw() {
-  ctx.clearRect(0, 0, canvas.width, canvas.height);
-  drawGrid();
-  
-  // Draw connections and circles for each bundle
-  for (let b in bundles) {
-    if (bundles[b].length > 0) {
-      drawBundleConnections(bundles[b], colors[b]);
-      drawBundleCircle(bundles[b], colors[b]);
-    }
-  }
-  
-  // Draw points on top
+function drawPoints() {
   for (let b in bundles) {
     ctx.fillStyle = colors[b];
     bundles[b].forEach(([x, y], i) => {
       const cx = origin.x + x * scaleX;
       const cy = origin.y - y * scaleY;
       
-      // Point shadow
       ctx.shadowColor = "rgba(0,0,0,0.25)";
       ctx.shadowBlur = 8;
       ctx.shadowOffsetY = 2;
       
-      // Draw point
       ctx.beginPath();
       ctx.arc(cx, cy, 8, 0, 2 * Math.PI);
       ctx.fill();
@@ -967,13 +1003,11 @@ function redraw() {
       ctx.shadowBlur = 0;
       ctx.shadowOffsetY = 0;
       
-      // Inner highlight
       ctx.fillStyle = "rgba(255,255,255,0.4)";
       ctx.beginPath();
       ctx.arc(cx - 1, cy - 1, 3, 0, 2 * Math.PI);
       ctx.fill();
       
-      // Label with background
       ctx.fillStyle = "rgba(255,255,255,0.95)";
       const label = b + (i + 1);
       ctx.font = "600 11px Inter, sans-serif";
@@ -987,55 +1021,26 @@ function redraw() {
       
       ctx.fillStyle = colors[b];
       ctx.fillText(label, cx + 16, cy - 4);
-      ctx.fillStyle = colors[b];
     });
   }
 }
 
-// Canvas click handler
-canvas.addEventListener('click', async (e) => {
-  const rect = canvas.getBoundingClientRect();
-  const scaleFactorX = canvas.width / rect.width;
-  const scaleFactorY = canvas.height / rect.height;
+function redraw() {
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  drawGrid();
   
-  const mx = (e.clientX - rect.left) * scaleFactorX;
-  const my = (e.clientY - rect.top) * scaleFactorY;
+  for (let b in bundles) {
+    if (bundles[b].length > 0) {
+      drawBundleConnections(bundles[b], colors[b]);
+      drawBundleCircle(bundles[b], colors[b]);
+    }
+  }
   
-  const x = ((mx - origin.x) / scaleX).toFixed(3);
-  const y = ((origin.y - my) / scaleY).toFixed(3);
-  
-  await pywebview.api.add_point(x, y, activeBundle);
-  bundles[activeBundle].push([parseFloat(x), parseFloat(y)]);
-  
-  // Animate point placement
-  animatePointPlacement(mx, my, colors[activeBundle]);
-  
-  redraw();
-  await updateResults();
-});
+  drawPoints();
+  drawSnapIndicator();
+}
 
-// Mouse move for coordinate display
-canvas.addEventListener('mousemove', (e) => {
-  const rect = canvas.getBoundingClientRect();
-  const scaleFactorX = canvas.width / rect.width;
-  const scaleFactorY = canvas.height / rect.height;
-  
-  const mx = (e.clientX - rect.left) * scaleFactorX;
-  const my = (e.clientY - rect.top) * scaleFactorY;
-  
-  const x = ((mx - origin.x) / scaleX).toFixed(3);
-  const y = ((origin.y - my) / scaleY).toFixed(3);
-  
-  const display = document.getElementById('coordDisplay');
-  display.textContent = `x: ${x}, y: ${y}`;
-  display.style.opacity = '1';
-});
-
-canvas.addEventListener('mouseleave', () => {
-  document.getElementById('coordDisplay').style.opacity = '0';
-});
-
-// Animate point placement
+// ===== Animation =====
 function animatePointPlacement(x, y, color) {
   let r = 0;
   const animate = () => {
@@ -1059,7 +1064,72 @@ function animatePointPlacement(x, y, color) {
   animate();
 }
 
-// Update results display
+// ===== Canvas Events =====
+canvas.addEventListener('mousemove', (e) => {
+  const rect = canvas.getBoundingClientRect();
+  const scaleFactorX = canvas.width / rect.width;
+  const scaleFactorY = canvas.height / rect.height;
+  
+  const mx = (e.clientX - rect.left) * scaleFactorX;
+  const my = (e.clientY - rect.top) * scaleFactorY;
+  
+  snapPoint = findSnapPoint(mx, my);
+  
+  const x = ((mx - origin.x) / scaleX).toFixed(3);
+  const y = ((origin.y - my) / scaleY).toFixed(3);
+  
+  const display = document.getElementById('coordDisplay');
+  
+  if (snapPoint) {
+    display.textContent = `SNAP: ${snapPoint.bundle}${snapPoint.index + 1} (${snapPoint.coordX.toFixed(3)}, ${snapPoint.coordY.toFixed(3)})`;
+    display.style.background = 'rgba(255, 185, 0, 0.9)';
+  } else {
+    display.textContent = `x: ${x}, y: ${y}`;
+    display.style.background = 'rgba(0, 0, 0, 0.85)';
+  }
+  display.style.opacity = '1';
+  
+  redraw();
+});
+
+canvas.addEventListener('click', async (e) => {
+  const rect = canvas.getBoundingClientRect();
+  const scaleFactorX = canvas.width / rect.width;
+  const scaleFactorY = canvas.height / rect.height;
+  
+  const mx = (e.clientX - rect.left) * scaleFactorX;
+  const my = (e.clientY - rect.top) * scaleFactorY;
+  
+  let x, y;
+  
+  if (snapPoint) {
+    x = snapPoint.coordX.toFixed(3);
+    y = snapPoint.coordY.toFixed(3);
+  } else {
+    x = ((mx - origin.x) / scaleX).toFixed(3);
+    y = ((origin.y - my) / scaleY).toFixed(3);
+  }
+  
+  await pywebview.api.add_point(x, y, activeBundle);
+  bundles[activeBundle].push([parseFloat(x), parseFloat(y)]);
+  
+  animatePointPlacement(
+    origin.x + parseFloat(x) * scaleX,
+    origin.y - parseFloat(y) * scaleY,
+    colors[activeBundle]
+  );
+  
+  updateAllPoints();
+  redraw();
+  await updateResults();
+});
+
+canvas.addEventListener('mouseleave', () => {
+  snapPoint = null;
+  document.getElementById('coordDisplay').style.opacity = '0';
+});
+
+// ===== Results Display =====
 async function updateResults() {
   const results = await pywebview.api.compute_results();
   const container = document.getElementById('results');
@@ -1078,7 +1148,6 @@ async function updateResults() {
   
   let html = '';
   
-  // GMR Results
   if (results.gmr.length > 0) {
     html += '<div class="result-card"><div class="result-card-title">Geometric Mean Radius (GMR)</div>';
     results.gmr.forEach(r => {
@@ -1094,7 +1163,6 @@ async function updateResults() {
     html += '</div>';
   }
   
-  // GMD Results
   if (results.gmd.length > 0) {
     html += '<div class="result-card"><div class="result-card-title">Geometric Mean Distance (GMD)</div>';
     results.gmd.forEach(r => {
@@ -1107,7 +1175,6 @@ async function updateResults() {
     html += '</div>';
   }
   
-  // Line Parameters
   if (results.params && Object.keys(results.params).length > 0) {
     const p = results.params;
     
@@ -1159,7 +1226,7 @@ async function updateResults() {
   container.innerHTML = html;
 }
 
-// Control functions
+// ===== Control Functions =====
 async function setGMRs() {
   const A = document.getElementById('gA').value;
   const B = document.getElementById('gB').value;
@@ -1181,6 +1248,7 @@ async function updateScale() {
   await pywebview.api.set_scale(sx, sy);
   scaleX = parseFloat(sx);
   scaleY = parseFloat(sy);
+  updateAllPoints();
   redraw();
 }
 
@@ -1197,6 +1265,7 @@ async function updateLineParams() {
 async function clearCurrent() {
   await pywebview.api.clear_bundle(activeBundle);
   bundles[activeBundle] = [];
+  updateAllPoints();
   redraw();
   await updateResults();
 }
@@ -1204,11 +1273,12 @@ async function clearCurrent() {
 async function clearAll() {
   await pywebview.api.clear_all();
   bundles = {A: [], B: [], C: []};
+  updateAllPoints();
   redraw();
   await updateResults();
 }
 
-// Initialize
+// ===== Initialize =====
 redraw();
 </script>
 </body>
