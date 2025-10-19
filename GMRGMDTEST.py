@@ -2,6 +2,86 @@ import numpy as np
 import webview
 from itertools import combinations, product
 
+"""
+Transmission Line Parameter Calculator Backend
+
+This script provides the backend logic for a transmission line parameter calculator.
+It computes the Geometric Mean Radius (GMR), Geometric Mean Distance (GMD),
+and the fundamental line parameters (Resistance, Inductance, Capacitance) for
+a three-phase transmission line configuration.
+
+The calculations support bundled conductors and various units of measurement.
+
+Core Components:
+- Utility Functions: Handle mathematical operations like distance, geometric mean,
+  GMR, and GMD calculations.
+- GMDGMRApp Class: An object-oriented approach to manage the state of the
+  transmission line, including conductor positions, materials, and other
+  physical properties.
+
+-----------------------------
+Standalone Usage Example
+-----------------------------
+The following example demonstrates how to use the GMDGMRApp class to model a
+simple three-phase transmission line and calculate its parameters.
+
+if __name__ == '__main__':
+    # 1. Initialize the application
+    app = GMDGMRApp()
+
+    # 2. Set the units and line parameters
+    print(app.set_unit("ft"))  # All coordinates and radii will be in feet
+    print(app.set_line_params(material="ACSR", length=150, radius=0.04, freq=60))
+    print("-" * 20)
+
+    # 3. Define the self GMR (r') for the conductors in each phase
+    # This is often given as 0.7788 * radius for a solid cylindrical wire.
+    # For this example, let's use a hypothetical value.
+    conductor_gmr_ft = 0.035
+    print(app.set_gmr("A", conductor_gmr_ft))
+    print(app.set_gmr("B", conductor_gmr_ft))
+    print(app.set_gmr("C", conductor_gmr_ft))
+    print("-" * 20)
+
+    # 4. Add conductor coordinates for each phase (bundle)
+    # Let's model a horizontal configuration with 20 ft spacing.
+    # Phase A at (-20, 0)
+    # Phase B at (0, 0)
+    # Phase C at (20, 0)
+    print("Adding points for Phase A...")
+    app.add_point(x=-20, y=0, bundle="A")
+
+    print("Adding points for Phase B...")
+    app.add_point(x=0, y=0, bundle="B")
+
+    print("Adding points for Phase C...")
+    app.add_point(x=20, y=0, bundle="C")
+    print("-" * 20)
+
+    # 5. Compute and display the results
+    results = app.compute_results()
+
+    print("\\n========== COMPUTATION RESULTS ==========")
+    print("--- GMR Values ---")
+    for gmr_data in results.get("gmr", []):
+        print(f"Phase {gmr_data['label']}: {gmr_data['value']:.6f} meters")
+
+    print("\\n--- GMD Values ---")
+    for gmd_data in results.get("gmd", []):
+        print(f"{gmd_data['pair']}: {gmd_data['value']:.6f} meters")
+
+    print("\\n--- Line Parameters ---")
+    params = results.get("params", {})
+    if params:
+        print(f"Total Resistance (R): {params['R_total']:.4f} Ω")
+        print(f"Total Inductance (L): {params['L_total']:.4f} mH")
+        print(f"Total Capacitance (C): {params['C_total']:.4f} µF")
+        print(f"Inductive Reactance (XL): {params['XL']:.4f} Ω")
+        print(f"Capacitive Reactance (XC): {params['XC']:.4f} Ω")
+    print("========================================")
+
+"""
+
 # ---------- Unit Conversion ----------
 UNIT_CONVERSIONS = {
     "m": 1.0,
@@ -21,27 +101,75 @@ MATERIALS = {
 
 # ---------- Math Utilities ----------
 def distance(p1, p2):
+    """Calculates the Euclidean distance between two points.
+
+    Args:
+        p1 (tuple): A tuple (x, y) representing the first point.
+        p2 (tuple): A tuple (x, y) representing the second point.
+
+    Returns:
+        float: The distance between p1 and p2.
+    """
     return np.linalg.norm(np.array(p1) - np.array(p2))
 
 def geometric_mean(values):
+    """Calculates the geometric mean of a list of numbers.
+
+    Args:
+        values (list of float): A list of numerical values.
+
+    Returns:
+        float: The geometric mean of the values.
+    """
     return np.prod(values) ** (1 / len(values))
 
 def compute_gmr(bundle_points, r_self):
+    """Computes the Geometric Mean Radius (GMR) for a bundled conductor.
+    Also known as self GMD (Ds).
+
+    Args:
+        bundle_points (list of tuples): A list of (x, y) coordinates for each
+                                        conductor within the bundle.
+        r_self (float): The self GMR of a single conductor, often denoted as r'
+                        (r' = 0.7788 * radius for a solid wire). Must be in meters.
+
+    Returns:
+        float: The calculated GMR of the bundle in meters.
+    """
     n = len(bundle_points)
     if n == 1:
         return r_self
+    # Distances between every unique pair of conductors in the bundle
     distances = [distance(p1, p2) for p1, p2 in combinations(bundle_points, 2)]
-    all_terms = [r_self] * n + distances
-    gmr = np.prod(all_terms) ** (1 / n)
+    # The GMR formula involves n^2 terms in the root.
+    # This includes n terms of r_self and n*(n-1) distances between conductors
+    # (with each distance counted twice, D_12 and D_21).
+    # This simplified version uses each unique distance twice.
+    num_terms = n**2
+    all_terms_product = (r_self**n) * (np.prod(distances)**2)
+    gmr = all_terms_product**(1 / num_terms)
     return gmr
 
+
 def compute_gmd(bundle1, bundle2):
+    """Computes the Geometric Mean Distance (GMD) between two conductor bundles.
+    Also known as mutual GMD.
+
+    Args:
+        bundle1 (list of tuples): List of (x, y) coordinates for conductors in the first bundle.
+        bundle2 (list of tuples): List of (x, y) coordinates for conductors in the second bundle.
+
+    Returns:
+        float: The calculated GMD between the two bundles in meters.
+    """
     distances = [distance(p1, p2) for p1, p2 in product(bundle1, bundle2)]
     return geometric_mean(distances)
 
 # ---------- App Logic ----------
 class GMDGMRApp:
+    """Manages the state and calculations for the transmission line calculator."""
     def __init__(self):
+        """Initializes the GMDGMRApp with default values."""
         self.bundles = {"A": [], "B": [], "C": []}
         self.r_self = {"A": 0.01, "B": 0.01, "C": 0.01}
         self.unit = "m"
@@ -55,20 +183,57 @@ class GMDGMRApp:
         self.freq = 60.0  # Hz
 
     def set_unit(self, u):
+        """Sets the default unit for all incoming spatial measurements.
+
+        Args:
+            u (str): The unit to use ('m', 'ft', 'inch', 'cm', 'mm').
+
+        Returns:
+            str: A confirmation message.
+        """
         if u in UNIT_CONVERSIONS:
             self.unit = u
         return f"Units set to {u}"
 
     def set_scale(self, sx, sy):
+        """Sets the UI canvas scaling factors (for visualization).
+
+        Args:
+            sx (float): The scale factor for the x-axis.
+            sy (float): The scale factor for the y-axis.
+
+        Returns:
+            str: A confirmation message.
+        """
         self.scale_x = float(sx)
         self.scale_y = float(sy)
         return "Scales updated"
 
     def set_gmr(self, bundle, val):
+        """Sets the self GMR (r') for conductors of a given phase/bundle.
+
+        Args:
+            bundle (str): The bundle label ('A', 'B', or 'C').
+            val (float): The numerical value of the self GMR in the current units.
+
+        Returns:
+            str: A confirmation message.
+        """
         self.r_self[bundle] = float(val) * UNIT_CONVERSIONS[self.unit]
         return f"Set GMR for {bundle} = {val} {self.unit}"
 
     def set_line_params(self, material, length, radius, freq):
+        """Sets the physical parameters of the transmission line.
+
+        Args:
+            material (str): The conductor material ("Copper", "Aluminum", etc.).
+            length (float): The total length of the line in kilometers.
+            radius (float): The physical radius of a single conductor in meters.
+            freq (float): The system frequency in Hertz.
+
+        Returns:
+            str: A confirmation message.
+        """
         self.material = material
         self.length = float(length)
         self.conductor_radius = float(radius)
@@ -76,20 +241,58 @@ class GMDGMRApp:
         return "Parameters updated"
 
     def add_point(self, x, y, bundle):
+        """Adds a conductor's coordinate to a specific bundle/phase.
+
+        Args:
+            x (float): The x-coordinate of the conductor in the current units.
+            y (float): The y-coordinate of the conductor in the current units.
+            bundle (str): The bundle label to add the point to ('A', 'B', or 'C').
+
+        Returns:
+            str: "ok" on success.
+        """
         x_m = float(x) * UNIT_CONVERSIONS[self.unit]
         y_m = float(y) * UNIT_CONVERSIONS[self.unit]
         self.bundles[bundle].append((x_m, y_m))
         return "ok"
 
     def clear_bundle(self, bundle):
+        """Clears all conductor points from a single bundle.
+
+        Args:
+            bundle (str): The bundle label to clear ('A', 'B', or 'C').
+
+        Returns:
+            str: A confirmation message.
+        """
         self.bundles[bundle] = []
         return f"Cleared {bundle}"
 
     def clear_all(self):
+        """Clears all conductor points from all bundles."""
         self.bundles = {"A": [], "B": [], "C": []}
         return "All cleared"
 
     def compute_results(self):
+        """Performs all major calculations for the defined transmission line.
+
+        Calculates GMR for each bundle, GMD between each pair of bundles,
+        and the R, L, C line parameters based on the stored configuration.
+
+        Returns:
+            dict: A dictionary containing the results, structured as:
+            {
+                "gmr": [{"label": "A", "value": 0.01, "count": 1}, ...],
+                "gmd": [{"pair": "A-B", "value": 1.0}, ...],
+                "params": {
+                    "R_total": ...,
+                    "L_total": ... (mH),
+                    "C_total": ... (µF),
+                    "XL": ...,
+                    "XC": ...
+                }
+            }
+        """
         results = {"gmr": [], "gmd": [], "params": {}}
         gmr_values = {}
         
@@ -135,8 +338,11 @@ class GMDGMRApp:
             
             # Capacitance (F/km and F total)
             if len(gmr_values) >= 2:
-                r_equiv = self.conductor_radius * (n_conductors ** 0.5) if n_conductors > 0 else self.conductor_radius
-                C_per_km = (2 * np.pi * 8.854e-12 * 1000) / np.log(avg_gmd / r_equiv)  # F/km
+                # For capacitance, we use the actual conductor radius, not GMR.
+                # An equivalent radius for the bundle is needed.
+                # This is a simplification; a more precise method would involve potential coefficients.
+                r_bundle_equiv = (n_conductors * self.conductor_radius * (geometric_mean([distance(p1,p2) for p1,p2 in combinations(self.bundles[list(gmr_values.keys())[0]], 2)]) if n_conductors > 1 else 1)**(n_conductors-1))**(1/n_conductors) if n_conductors > 1 else self.conductor_radius
+                C_per_km = (2 * np.pi * 8.854e-12 * 1000) / np.log(avg_gmd / r_bundle_equiv) # F/km
                 C_total = C_per_km * self.length
             else:
                 C_per_km = 0
@@ -159,7 +365,6 @@ class GMDGMRApp:
             }
         
         return results
-
 # ---------- Modern Windows-Style UI ----------
 html = """
 <!DOCTYPE html>
