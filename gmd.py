@@ -1,5 +1,5 @@
 import math
-
+"."
 
 # calculate GMD (Geometric Mean Distance)
 if not distances or any(d <= 0 for d in distances):
