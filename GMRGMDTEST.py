@@ -387,7 +387,7 @@ class GMDGMRApp:
             
             # Configure Gemini
             genai.configure(api_key=key)
-            model = genai.GenerativeModel('gemini-1.5-flash')
+            model = genai.GenerativeModel('gemini-1.5-pro-latest')
             
             # Get current results
             results = self.compute_results()
@@ -2014,7 +2014,8 @@ async function clearAll() {
   await updateResults();
 }
 // ===== LaTeX Export =====
-// ===== LaTeX Export =====
+let currentLatexContent = null;
+
 async function exportLatex() {
   const apiKey = document.getElementById('apiKey').value;
   const statusDiv = document.getElementById('exportStatus');
@@ -2036,19 +2037,7 @@ async function exportLatex() {
     if (latex.startsWith('Error')) {
       showResultModal('error', 'Generation Failed', latex);
     } else {
-      // Create download with timestamp
-      const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, -5);
-      const filename = `transmission_line_solution_${timestamp}.tex`;
-      
-      const blob = new Blob([latex], { type: 'text/plain' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = filename;
-      a.click();
-      URL.revokeObjectURL(url);
-      
-      showResultModal('success', 'Export Successful', `LaTeX document has been downloaded as:<br><strong>${filename}</strong><br><br>You can now compile it with pdflatex.`);
+      showLatexModal(latex);
     }
   } catch (error) {
     closeLoadingModal();
@@ -2119,18 +2108,25 @@ function showLoadingModal() {
   
   document.body.appendChild(modal);
   
-  // Add animations
-  const style = document.createElement('style');
-  style.textContent = `
-    @keyframes spin {
-      to { transform: rotate(360deg); }
-    }
-    @keyframes modalFadeIn {
-      from { opacity: 0; transform: scale(0.9); }
-      to { opacity: 1; transform: scale(1); }
-    }
-  `;
-  document.head.appendChild(style);
+  // Add animations if not already added
+  if (!document.getElementById('modal-animations')) {
+    const style = document.createElement('style');
+    style.id = 'modal-animations';
+    style.textContent = `
+      @keyframes spin {
+        to { transform: rotate(360deg); }
+      }
+      @keyframes modalFadeIn {
+        from { opacity: 0; transform: scale(0.9); }
+        to { opacity: 1; transform: scale(1); }
+      }
+      @keyframes modalFadeOut {
+        from { opacity: 1; transform: scale(1); }
+        to { opacity: 0; transform: scale(0.9); }
+      }
+    `;
+    document.head.appendChild(style);
+  }
 }
 
 function closeLoadingModal() {
@@ -2216,15 +2212,6 @@ function showResultModal(type, title, message) {
       closeResultModal();
     }
   });
-  
-  // Close on ESC key
-  const escHandler = (e) => {
-    if (e.key === 'Escape') {
-      closeResultModal();
-      document.removeEventListener('keydown', escHandler);
-    }
-  };
-  document.addEventListener('keydown', escHandler);
 }
 
 function closeResultModal() {
@@ -2233,6 +2220,232 @@ function closeResultModal() {
     modal.style.animation = 'modalFadeOut 0.3s ease';
     setTimeout(() => modal.remove(), 300);
   }
+}
+
+function showLatexModal(latexContent) {
+  currentLatexContent = latexContent;
+  
+  const modal = document.createElement('div');
+  modal.id = 'latex-display-modal';
+  modal.style.cssText = `
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.6);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 10000;
+    backdrop-filter: blur(4px);
+    animation: modalFadeIn 0.3s ease;
+  `;
+  
+  const escapedContent = latexContent
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
+  
+  modal.innerHTML = `
+    <div style="
+      background: white;
+      border-radius: 12px;
+      padding: 0;
+      box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+      max-width: 900px;
+      width: 90%;
+      max-height: 85vh;
+      display: flex;
+      flex-direction: column;
+      animation: modalFadeIn 0.3s ease;
+    ">
+      <!-- Header -->
+      <div style="
+        padding: 24px 32px;
+        border-bottom: 1px solid #e1dfdd;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+      ">
+        <div>
+          <h3 style="
+            font-size: 20px;
+            font-weight: 600;
+            color: #1f1f1f;
+            margin-bottom: 4px;
+          ">✅ LaTeX Solution Generated</h3>
+          <p style="
+            font-size: 13px;
+            color: #605e5c;
+          ">Copy the code below or download it as a .tex file</p>
+        </div>
+        <button onclick="closeLatexModal()" style="
+          width: 32px;
+          height: 32px;
+          border: none;
+          background: transparent;
+          color: #605e5c;
+          font-size: 24px;
+          cursor: pointer;
+          border-radius: 4px;
+          transition: all 0.15s ease;
+          line-height: 1;
+        " onmouseover="this.style.background='#f3f3f3'" onmouseout="this.style.background='transparent'">×</button>
+      </div>
+      
+      <!-- Content -->
+      <div style="
+        flex: 1;
+        overflow-y: auto;
+        padding: 24px 32px;
+        background: #f9f9f9;
+      ">
+        <pre style="
+          background: #1e1e1e;
+          color: #d4d4d4;
+          padding: 20px;
+          border-radius: 8px;
+          font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+          font-size: 12px;
+          line-height: 1.6;
+          overflow-x: auto;
+          margin: 0;
+          white-space: pre-wrap;
+          word-wrap: break-word;
+        ">${escapedContent}</pre>
+      </div>
+      
+      <!-- Footer -->
+      <div style="
+        padding: 20px 32px;
+        border-top: 1px solid #e1dfdd;
+        display: flex;
+        gap: 12px;
+        justify-content: flex-end;
+      ">
+        <button onclick="copyLatexToClipboard()" style="
+          padding: 10px 24px;
+          background: #0078d4;
+          color: white;
+          border: none;
+          border-radius: 6px;
+          font-size: 14px;
+          font-weight: 500;
+          cursor: pointer;
+          transition: all 0.15s ease;
+          display: flex;
+          align-items: center;
+          gap: 8px;
+        " onmouseover="this.style.background='#106ebe'" onmouseout="this.style.background='#0078d4'">
+          📋 Copy to Clipboard
+        </button>
+        
+        <button onclick="downloadLatex()" style="
+          padding: 10px 24px;
+          background: #107c10;
+          color: white;
+          border: none;
+          border-radius: 6px;
+          font-size: 14px;
+          font-weight: 500;
+          cursor: pointer;
+          transition: all 0.15s ease;
+          display: flex;
+          align-items: center;
+          gap: 8px;
+        " onmouseover="this.style.background='#0e6b0e'" onmouseout="this.style.background='#107c10'">
+          💾 Download .tex File
+        </button>
+        
+        <button onclick="closeLatexModal()" style="
+          padding: 10px 24px;
+          background: #fafafa;
+          color: #1f1f1f;
+          border: 1px solid #e1dfdd;
+          border-radius: 6px;
+          font-size: 14px;
+          font-weight: 500;
+          cursor: pointer;
+          transition: all 0.15s ease;
+        " onmouseover="this.style.background='#f5f5f5'" onmouseout="this.style.background='#fafafa'">
+          Close
+        </button>
+      </div>
+    </div>
+  `;
+  
+  document.body.appendChild(modal);
+  
+  // Close on background click
+  modal.addEventListener('click', (e) => {
+    if (e.target === modal) {
+      closeLatexModal();
+    }
+  });
+  
+  // Close on ESC key
+  const escHandler = (e) => {
+    if (e.key === 'Escape') {
+      closeLatexModal();
+      document.removeEventListener('keydown', escHandler);
+    }
+  };
+  document.addEventListener('keydown', escHandler);
+}
+
+function closeLatexModal() {
+  const modal = document.getElementById('latex-display-modal');
+  if (modal) {
+    modal.style.animation = 'modalFadeOut 0.3s ease';
+    setTimeout(() => modal.remove(), 300);
+  }
+  currentLatexContent = null;
+}
+
+function copyLatexToClipboard() {
+  if (!currentLatexContent) return;
+  
+  navigator.clipboard.writeText(currentLatexContent).then(() => {
+    // Show success feedback
+    const btn = event.target.closest('button');
+    const originalText = btn.innerHTML;
+    btn.innerHTML = '✅ Copied!';
+    btn.style.background = '#107c10';
+    
+    setTimeout(() => {
+      btn.innerHTML = originalText;
+      btn.style.background = '#0078d4';
+    }, 2000);
+  }).catch(err => {
+    alert('Failed to copy: ' + err);
+  });
+}
+
+function downloadLatex() {
+  if (!currentLatexContent) return;
+  
+  const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, -5);
+  const filename = `transmission_line_solution_${timestamp}.tex`;
+  
+  const blob = new Blob([currentLatexContent], { type: 'text/plain' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
+  
+  // Show success feedback
+  const btn = event.target.closest('button');
+  const originalText = btn.innerHTML;
+  btn.innerHTML = '✅ Downloaded!';
+  
+  setTimeout(() => {
+    btn.innerHTML = originalText;
+  }, 2000);
 }
 // ===== Initialize =====
 redraw();
