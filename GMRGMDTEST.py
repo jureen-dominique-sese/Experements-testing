@@ -1,6 +1,10 @@
 import numpy as np
 import webview
 from itertools import combinations, product
+import google.generativeai as genai
+import json
+
+GEMINI_API_KEY = "AIzaSyDgJcTZHERGt6URVGdTwd8twOCaumUtX4g"
 
 """
 Transmission Line Parameter Calculator Backend
@@ -365,6 +369,85 @@ class GMDGMRApp:
             }
         
         return results
+    def export_latex_solution(self, api_key=None):
+        """Generates a detailed LaTeX solution document using Gemini API.
+        
+        Args:
+            api_key (str): Google Gemini API key (optional if GEMINI_API_KEY is set)
+            
+        Returns:
+            str: LaTeX document content or error message
+        """
+        try:
+            # Use provided key or fall back to constant
+            key = api_key if api_key else GEMINI_API_KEY
+            
+            if not key:
+                return "Error: No API key provided"
+            
+            # Configure Gemini
+            genai.configure(api_key=key)
+            model = genai.GenerativeModel('gemini-1.5-flash')
+            
+            # Get current results
+            results = self.compute_results()
+            
+            # Check if there's data to export
+            if not any(self.bundles.values()):
+                return "Error: No conductor data to export. Please add some points first."
+            
+            # Create detailed prompt for Gemini
+            prompt = f"""Generate a complete LaTeX document for a transmission line parameter calculation solution.
+
+    Problem Configuration:
+    - Material: {self.material}
+    - Line Length: {self.length} km
+    - Conductor Radius: {self.conductor_radius} m
+    - Frequency: {self.freq} Hz
+    - Units: {self.unit}
+
+    Bundle Configurations (coordinates in meters):
+    {json.dumps({k: v for k, v in self.bundles.items() if v}, indent=2)}
+
+    Self GMR Values (meters):
+    {json.dumps(self.r_self, indent=2)}
+
+    Calculated Results:
+    {json.dumps(results, indent=2)}
+
+    Create a complete LaTeX document with:
+    1. Document class and necessary packages (amsmath, geometry, booktabs, etc.)
+    2. Title: "Transmission Line Parameter Calculation"
+    3. Problem statement with given data
+    4. Step-by-step GMR calculations for each bundle with detailed formulas
+    5. Step-by-step GMD calculations between bundles with detailed formulas
+    6. Resistance calculation with complete formula derivation
+    7. Inductance calculation with complete formula derivation
+    8. Capacitance calculation with complete formula derivation
+    9. Final results summary in a professional table
+    10. All equations numbered and properly formatted
+    11. Include all intermediate calculation steps
+
+    Use proper LaTeX formatting with \\documentclass{{article}}, \\begin{{document}}, etc.
+    The document should be complete and ready to compile with pdflatex."""
+
+            # Generate LaTeX
+            response = model.generate_content(prompt)
+            
+            latex_content = response.text
+            
+            # Clean up markdown code blocks if present
+            if "```latex" in latex_content:
+                latex_content = latex_content.split("```latex")[1].split("```")[0].strip()
+            elif "```tex" in latex_content:
+                latex_content = latex_content.split("```tex")[1].split("```")[0].strip()
+            elif "```" in latex_content:
+                latex_content = latex_content.split("```")[1].split("```")[0].strip()
+            
+            return latex_content
+            
+        except Exception as e:
+            return f"Error generating LaTeX: {str(e)}"
 # ---------- Modern Windows-Style UI ----------
 html = """
 <!DOCTYPE html>
@@ -938,6 +1021,21 @@ canvas {
       </div>
       
       <button class="btn btn-primary btn-block" onclick="updateLineParams()">Calculate Parameters</button>
+      <!-- LaTeX Export -->
+      <div class="sidebar-section">
+        <div class="section-title">Export Solution</div>
+        
+        <div class="form-group">
+          <label class="form-label">Gemini API Key</label>
+          <input id="apiKey" type="password" placeholder="Enter API key" class="form-control">
+        </div>
+        
+        <button class="btn btn-primary btn-block" onclick="exportLatex()">
+          Generate LaTeX Solution
+        </button>
+        
+        <div id="exportStatus" style="margin-top: 10px; font-size: 12px; color: var(--fg-secondary);"></div>
+      </div>
     </div>
     
   </div>
@@ -1915,7 +2013,227 @@ async function clearAll() {
   redraw();
   await updateResults();
 }
+// ===== LaTeX Export =====
+// ===== LaTeX Export =====
+async function exportLatex() {
+  const apiKey = document.getElementById('apiKey').value;
+  const statusDiv = document.getElementById('exportStatus');
+  
+  if (!apiKey) {
+    statusDiv.style.color = '#d13438';
+    statusDiv.textContent = '⚠️ Please enter your Gemini API key';
+    return;
+  }
+  
+  // Show loading modal
+  showLoadingModal();
+  
+  try {
+    const latex = await pywebview.api.export_latex_solution(apiKey);
+    
+    closeLoadingModal();
+    
+    if (latex.startsWith('Error')) {
+      showResultModal('error', 'Generation Failed', latex);
+    } else {
+      // Create download with timestamp
+      const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, -5);
+      const filename = `transmission_line_solution_${timestamp}.tex`;
+      
+      const blob = new Blob([latex], { type: 'text/plain' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      a.click();
+      URL.revokeObjectURL(url);
+      
+      showResultModal('success', 'Export Successful', `LaTeX document has been downloaded as:<br><strong>${filename}</strong><br><br>You can now compile it with pdflatex.`);
+    }
+  } catch (error) {
+    closeLoadingModal();
+    showResultModal('error', 'Export Failed', error.toString());
+  }
+}
 
+function showLoadingModal() {
+  const modal = document.createElement('div');
+  modal.id = 'export-loading-modal';
+  modal.style.cssText = `
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.6);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 10000;
+    backdrop-filter: blur(4px);
+  `;
+  
+  modal.innerHTML = `
+    <div style="
+      background: white;
+      border-radius: 12px;
+      padding: 40px;
+      box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+      text-align: center;
+      max-width: 400px;
+      animation: modalFadeIn 0.3s ease;
+    ">
+      <div style="
+        width: 60px;
+        height: 60px;
+        border: 4px solid #e1dfdd;
+        border-top-color: #0078d4;
+        border-radius: 50%;
+        margin: 0 auto 24px;
+        animation: spin 1s linear infinite;
+      "></div>
+      
+      <h3 style="
+        font-size: 18px;
+        font-weight: 600;
+        color: #1f1f1f;
+        margin-bottom: 12px;
+      ">Generating LaTeX Solution</h3>
+      
+      <p style="
+        font-size: 14px;
+        color: #605e5c;
+        line-height: 1.6;
+      ">Please wait while Gemini AI creates your detailed step-by-step solution document...</p>
+      
+      <div style="
+        margin-top: 20px;
+        padding: 12px;
+        background: #f3f3f3;
+        border-radius: 6px;
+        font-size: 12px;
+        color: #605e5c;
+      ">⏱️ This usually takes 5-15 seconds</div>
+    </div>
+  `;
+  
+  document.body.appendChild(modal);
+  
+  // Add animations
+  const style = document.createElement('style');
+  style.textContent = `
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+    @keyframes modalFadeIn {
+      from { opacity: 0; transform: scale(0.9); }
+      to { opacity: 1; transform: scale(1); }
+    }
+  `;
+  document.head.appendChild(style);
+}
+
+function closeLoadingModal() {
+  const modal = document.getElementById('export-loading-modal');
+  if (modal) {
+    modal.style.animation = 'modalFadeOut 0.3s ease';
+    setTimeout(() => modal.remove(), 300);
+  }
+}
+
+function showResultModal(type, title, message) {
+  const isSuccess = type === 'success';
+  const icon = isSuccess ? '✅' : '❌';
+  const color = isSuccess ? '#107c10' : '#d13438';
+  
+  const modal = document.createElement('div');
+  modal.id = 'export-result-modal';
+  modal.style.cssText = `
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.6);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 10000;
+    backdrop-filter: blur(4px);
+    animation: modalFadeIn 0.3s ease;
+  `;
+  
+  modal.innerHTML = `
+    <div style="
+      background: white;
+      border-radius: 12px;
+      padding: 40px;
+      box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+      text-align: center;
+      max-width: 450px;
+      animation: modalFadeIn 0.3s ease;
+    ">
+      <div style="
+        font-size: 48px;
+        margin-bottom: 20px;
+      ">${icon}</div>
+      
+      <h3 style="
+        font-size: 20px;
+        font-weight: 600;
+        color: ${color};
+        margin-bottom: 16px;
+      ">${title}</h3>
+      
+      <p style="
+        font-size: 14px;
+        color: #605e5c;
+        line-height: 1.6;
+        margin-bottom: 24px;
+      ">${message}</p>
+      
+      <button onclick="closeResultModal()" style="
+        padding: 12px 32px;
+        background: ${color};
+        color: white;
+        border: none;
+        border-radius: 6px;
+        font-size: 14px;
+        font-weight: 500;
+        cursor: pointer;
+        transition: all 0.15s ease;
+      " onmouseover="this.style.opacity='0.9'" onmouseout="this.style.opacity='1'">
+        Close
+      </button>
+    </div>
+  `;
+  
+  document.body.appendChild(modal);
+  
+  // Close on background click
+  modal.addEventListener('click', (e) => {
+    if (e.target === modal) {
+      closeResultModal();
+    }
+  });
+  
+  // Close on ESC key
+  const escHandler = (e) => {
+    if (e.key === 'Escape') {
+      closeResultModal();
+      document.removeEventListener('keydown', escHandler);
+    }
+  };
+  document.addEventListener('keydown', escHandler);
+}
+
+function closeResultModal() {
+  const modal = document.getElementById('export-result-modal');
+  if (modal) {
+    modal.style.animation = 'modalFadeOut 0.3s ease';
+    setTimeout(() => modal.remove(), 300);
+  }
+}
 // ===== Initialize =====
 redraw();
 </script>
