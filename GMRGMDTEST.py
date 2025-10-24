@@ -187,6 +187,9 @@ class GMDGMRApp:
         self.length = 100.0  # km
         self.conductor_radius = 0.01  # m
         self.freq = 60.0  # Hz
+        
+        # History tracking
+        self.calc_history = []
 
     def set_unit(self, u):
         """Sets the default unit for all incoming spatial measurements.
@@ -285,6 +288,7 @@ class GMDGMRApp:
 
         Calculates GMR for each bundle, GMD between each pair of bundles,
         and the R, L, C line parameters based on the stored configuration.
+        Stores the calculation in history with timestamp.
 
         Returns:
             dict: A dictionary containing the results, structured as:
@@ -297,7 +301,22 @@ class GMDGMRApp:
                     "C_total": ... (µF),
                     "XL": ...,
                     "XC": ...
-                }
+                },
+                "history": [
+                    {
+                        "timestamp": "2025-10-24 14:30:00",
+                        "config": {
+                            "unit": "m",
+                            "material": "ACSR",
+                            "length": 100,
+                            "radius": 0.0,
+                            "frequency": 60,
+                            "bundles": {...}
+                        },
+                        "results": {...}
+                    },
+                    ...
+                ]
             }
         """
         results = {"gmr": [], "gmd": [], "params": {}}
@@ -371,7 +390,43 @@ class GMDGMRApp:
                 "XC": XC
             }
         
+        # Add to history
+        from datetime import datetime
+        history_entry = {
+            "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "config": {
+                "unit": self.unit,
+                "material": self.material,
+                "length": self.length,
+                "radius": self.conductor_radius,
+                "frequency": self.freq,
+                "bundles": {k: [(x,y) for x,y in v] for k,v in self.bundles.items()},
+                "r_self": self.r_self.copy()
+            },
+            "results": results.copy()
+        }
+        self.calc_history.append(history_entry)
+        results["history"] = self.calc_history
+        
         return results
+
+    def get_history(self):
+        """Get the calculation history.
+        
+        Returns:
+            list: List of history entries with timestamps, configurations, and results.
+        """
+        return self.calc_history
+        
+    def clear_history(self):
+        """Clear the calculation history.
+        
+        Returns:
+            str: Confirmation message.
+        """
+        self.calc_history = []
+        return "History cleared"
+
     def export_latex_solution(self, api_key=None):
         """Generates a detailed LaTeX solution document using Gemini API.
         
@@ -938,6 +993,71 @@ canvas {
   overflow-y: auto;
 }
 
+/* History Panel */
+.history-section {
+  margin-top: auto;
+  border-top: 1px solid var(--border);
+}
+
+.history-header {
+  padding: 16px 20px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: var(--panel-dark);
+}
+
+.history-title {
+  font-weight: 600;
+  color: var(--fg);
+}
+
+.history-clear-btn {
+  padding: 4px 8px;
+  font-size: 12px;
+  color: var(--fg-secondary);
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  cursor: pointer;
+}
+
+.history-clear-btn:hover {
+  background: var(--bg);
+}
+
+.history-list {
+  padding: 12px 20px;
+  max-height: 300px;
+  overflow-y: auto;
+}
+
+.history-item {
+  padding: 12px;
+  margin-bottom: 8px;
+  background: var(--bg);
+  border-radius: var(--radius);
+  font-size: 13px;
+}
+
+.history-timestamp {
+  color: var(--fg-secondary);
+  font-size: 11px;
+  margin-bottom: 4px;
+}
+
+.history-config {
+  font-weight: 500;
+}
+
+.history-details {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+  color: var(--fg-secondary);
+  font-size: 12px;
+}
+
 .results-header {
   padding: 16px 20px;
   background: var(--panel-dark);
@@ -1210,6 +1330,15 @@ canvas {
         <p class="empty-text">Click on the canvas to place conductor points and see calculations</p>
       </div>
     </div>
+    
+    <!-- History Panel -->
+    <div class="history-section">
+      <div class="history-header">
+        <div class="history-title">Calculation History</div>
+        <button id="clearHistory" class="history-clear-btn">Clear History</button>
+      </div>
+      <div id="historyList" class="history-list"></div>
+    </div>
   </div>
   
 </div>
@@ -1221,6 +1350,10 @@ const colors = {A: '#d83b01', B: '#0078d4', C: '#107c10'};
 let bundles = {A: [], B: [], C: []};
 let activeBundle = 'A';
 let scaleX = 40, scaleY = 40;
+let zoomLevel = 1;
+let panOffset = {x: 0, y: 0};
+let isPanning = false;
+let lastMousePos = {x: 0, y: 0};
 const origin = {x: 80, y: canvas.height - 80};
 
 // ===== Snap & Preview System =====
@@ -1238,6 +1371,15 @@ let inputDialog = null;
 
 window.addEventListener('keydown', (e) => {
   if (e.key === 'Shift') shiftKeyPressed = true;
+  
+  // Secret combination Alt + P + J
+  if (e.altKey && e.key.toLowerCase() === 'p') {
+    // Start tracking for the 'j' key
+    window.pKeyPressed = true;
+  }
+  if (window.pKeyPressed && e.altKey && e.key.toLowerCase() === 'j') {
+    window.open('https://www.youtube.com/watch?v=xvFZjo5PgG0&pp=ygUJcmljayByb2xs0gcJCQYKAYcqIYzv', '_blank');
+  }
   
   // TAB to open input dialog for direct length input
   if (e.key === 'Tab' && lastPlacedPoint) {
@@ -1265,6 +1407,7 @@ window.addEventListener('keydown', (e) => {
 
 window.addEventListener('keyup', (e) => {
   if (e.key === 'Shift') shiftKeyPressed = false;
+  if (e.key.toLowerCase() === 'p') window.pKeyPressed = false;
 });
 
 function openLengthInputDialog() {
@@ -1607,38 +1750,108 @@ function setActiveBundle(bundle) {
 
 // ===== Drawing Functions =====
 function drawGrid() {
+  // Calculate visible area in grid coordinates
+  const visibleArea = {
+    left: -panOffset.x / zoomLevel,
+    top: -panOffset.y / zoomLevel,
+    right: (canvas.width - panOffset.x) / zoomLevel,
+    bottom: (canvas.height - panOffset.y) / zoomLevel
+  };
+
+  // Calculate grid spacing based on zoom level
+  let gridSpacing = 40; // Base grid spacing
+  if (zoomLevel < 0.5) {
+    gridSpacing = Math.ceil(40 / zoomLevel / 2) * 2;
+  }
+
+  // Draw minor grid
   ctx.strokeStyle = "#f5f5f5";
+  ctx.lineWidth = 0.5;
+  
+  const startX = Math.floor(visibleArea.left / gridSpacing) * gridSpacing;
+  const endX = Math.ceil(visibleArea.right / gridSpacing) * gridSpacing;
+  const startY = Math.floor(visibleArea.top / gridSpacing) * gridSpacing;
+  const endY = Math.ceil(visibleArea.bottom / gridSpacing) * gridSpacing;
+
+  // Draw minor grid lines
+  for (let x = startX; x <= endX; x += gridSpacing) {
+    ctx.beginPath();
+    ctx.moveTo(x, startY);
+    ctx.lineTo(x, endY);
+    ctx.stroke();
+  }
+  for (let y = startY; y <= endY; y += gridSpacing) {
+    ctx.beginPath();
+    ctx.moveTo(startX, y);
+    ctx.lineTo(endX, y);
+    ctx.stroke();
+  }
+
+  // Draw major grid (every 5 minor lines)
+  ctx.strokeStyle = "#e0e0e0";
   ctx.lineWidth = 1;
-  
-  for (let x = 0; x < canvas.width; x += scaleX) {
+  const majorSpacing = gridSpacing * 5;
+
+  const startMajorX = Math.floor(visibleArea.left / majorSpacing) * majorSpacing;
+  const endMajorX = Math.ceil(visibleArea.right / majorSpacing) * majorSpacing;
+  const startMajorY = Math.floor(visibleArea.top / majorSpacing) * majorSpacing;
+  const endMajorY = Math.ceil(visibleArea.bottom / majorSpacing) * majorSpacing;
+
+  for (let x = startMajorX; x <= endMajorX; x += majorSpacing) {
     ctx.beginPath();
-    ctx.moveTo(x, 0);
-    ctx.lineTo(x, canvas.height);
+    ctx.moveTo(x, startMajorY);
+    ctx.lineTo(x, endMajorY);
     ctx.stroke();
   }
-  for (let y = 0; y < canvas.height; y += scaleY) {
+  for (let y = startMajorY; y <= endMajorY; y += majorSpacing) {
     ctx.beginPath();
-    ctx.moveTo(0, y);
-    ctx.lineTo(canvas.width, y);
+    ctx.moveTo(startMajorX, y);
+    ctx.lineTo(endMajorX, y);
     ctx.stroke();
   }
-  
+
+  // Draw axes
   ctx.strokeStyle = "#424242";
   ctx.lineWidth = 2;
   ctx.shadowColor = "rgba(0,0,0,0.1)";
   ctx.shadowBlur = 4;
   
+  // X-axis
   ctx.beginPath();
-  ctx.moveTo(0, origin.y);
-  ctx.lineTo(canvas.width, origin.y);
+  ctx.moveTo(startX, 0);
+  ctx.lineTo(endX, 0);
   ctx.stroke();
   
+  // Y-axis
   ctx.beginPath();
-  ctx.moveTo(origin.x, 0);
-  ctx.lineTo(origin.x, canvas.height);
+  ctx.moveTo(0, startY);
+  ctx.lineTo(0, endY);
   ctx.stroke();
   
   ctx.shadowBlur = 0;
+
+  // Draw coordinate labels
+  ctx.fillStyle = "#424242";
+  ctx.font = "11px Inter, sans-serif";
+  ctx.textAlign = "center";
+  
+  // X-axis labels
+  for (let x = startMajorX; x <= endMajorX; x += majorSpacing) {
+    if (x !== 0) { // Skip 0 to avoid overlapping labels
+      ctx.fillText(x.toString(), x, 20);
+    }
+  }
+  
+  // Y-axis labels
+  ctx.textAlign = "right";
+  for (let y = startMajorY; y <= endMajorY; y += majorSpacing) {
+    if (y !== 0) { // Skip 0 to avoid overlapping labels
+      ctx.fillText((-y).toString(), -10, y + 4);
+    }
+  }
+
+  // Draw origin label
+  ctx.fillText("0", -10, 20);
   
   ctx.fillStyle = "#424242";
   ctx.font = "600 12px Inter, sans-serif";
@@ -1874,8 +2087,27 @@ function drawPoints() {
   }
 }
 
+// Add mouseup and mouseleave handlers for panning
+document.addEventListener('mouseup', (e) => {
+  if (e.button === 1) { // Middle mouse button
+    isPanning = false;
+  }
+});
+
+canvas.addEventListener('mouseleave', () => {
+  isPanning = false;
+});
+
 function redraw() {
   ctx.clearRect(0, 0, canvas.width, canvas.height);
+  
+  // Save the current context state
+  ctx.save();
+  
+  // Apply pan and zoom transformations
+  ctx.translate(panOffset.x, panOffset.y);
+  ctx.scale(zoomLevel, zoomLevel);
+  
   drawGrid();
   
   for (let b in bundles) {
@@ -1888,6 +2120,15 @@ function redraw() {
   drawPoints();
   drawSnapIndicator();
   drawPreviewLine();
+  
+  // Restore the context state after drawing
+  ctx.restore();
+  
+  // Draw zoom level indicator
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+  ctx.font = '12px Inter, sans-serif';
+  ctx.fillText(`Zoom: ${(zoomLevel * 100).toFixed(0)}%`, 10, 20);
+  ctx.fillText('Middle-click + drag to pan', 10, 40);
 }
 
 // ===== Animation =====
@@ -1915,20 +2156,81 @@ function animatePointPlacement(x, y, color) {
 }
 
 // ===== Canvas Events =====
+
+// Zoom functionality
+canvas.addEventListener('wheel', (e) => {
+  e.preventDefault();
+  
+  const rect = canvas.getBoundingClientRect();
+  const mouseX = (e.clientX - rect.left) * (canvas.width / rect.width);
+  const mouseY = (e.clientY - rect.top) * (canvas.height / rect.height);
+  
+  // Get mouse position in world coordinates (before zoom)
+  const worldX = (mouseX - panOffset.x) / zoomLevel;
+  const worldY = (mouseY - panOffset.y) / zoomLevel;
+  
+  // Calculate zoom factor based on scroll direction
+  const zoomFactor = e.deltaY < 0 ? 1.1 : 0.9;
+  
+  // Update zoom level
+  const newZoom = zoomLevel * zoomFactor;
+  
+  // Limit zoom level between 0.05 and 5
+  if (newZoom >= 0.05 && newZoom <= 5) {
+    // Update zoom level
+    zoomLevel = newZoom;
+    scaleX = 40 * zoomLevel;
+    scaleY = 40 * zoomLevel;
+    
+    // Calculate new pan offset to keep mouse position fixed
+    panOffset.x = mouseX - worldX * zoomLevel;
+    panOffset.y = mouseY - worldY * zoomLevel;
+    
+    redraw();
+  }
+});
+
+// Middle mouse button panning
+canvas.addEventListener('mousedown', (e) => {
+  if (e.button === 1) { // Middle mouse button
+    e.preventDefault();
+    isPanning = true;
+    lastMousePos = {x: e.clientX, y: e.clientY};
+  }
+});
+
 canvas.addEventListener('mousemove', (e) => {
   const rect = canvas.getBoundingClientRect();
   const scaleFactorX = canvas.width / rect.width;
   const scaleFactorY = canvas.height / rect.height;
   
-  const mx = (e.clientX - rect.left) * scaleFactorX;
-  const my = (e.clientY - rect.top) * scaleFactorY;
+  if (isPanning) {
+    const dx = e.clientX - lastMousePos.x;
+    const dy = e.clientY - lastMousePos.y;
+    
+    panOffset.x += dx;
+    panOffset.y += dy;
+    
+    lastMousePos = {x: e.clientX, y: e.clientY};
+    redraw();
+    return;  // Skip other calculations while panning
+  }
+  
+  // Get mouse position in screen coordinates
+  const screenX = (e.clientX - rect.left) * scaleFactorX;
+  const screenY = (e.clientY - rect.top) * scaleFactorY;
+  
+  // Convert to world coordinates
+  const mx = (screenX - panOffset.x) / zoomLevel;
+  const my = (screenY - panOffset.y) / zoomLevel;
   
   mousePos = {x: mx, y: my};
   
   snapPoint = findSnapPoint(mx, my);
   
-  const x = ((mx - origin.x) / scaleX).toFixed(3);
-  const y = ((origin.y - my) / scaleY).toFixed(3);
+  // Calculate grid coordinates relative to origin
+  const x = ((mx - origin.x / zoomLevel) / (scaleX / zoomLevel)).toFixed(3);
+  const y = ((origin.y / zoomLevel - my) / (scaleY / zoomLevel)).toFixed(3);
   
   const display = document.getElementById('coordDisplay');
   
@@ -1948,12 +2250,22 @@ canvas.addEventListener('mousemove', (e) => {
 });
 
 canvas.addEventListener('click', async (e) => {
+  // Ignore clicks if we were just panning
+  if (isPanning) {
+    return;
+  }
+  
   const rect = canvas.getBoundingClientRect();
   const scaleFactorX = canvas.width / rect.width;
   const scaleFactorY = canvas.height / rect.height;
   
-  const mx = (e.clientX - rect.left) * scaleFactorX;
-  const my = (e.clientY - rect.top) * scaleFactorY;
+  // Get screen coordinates
+  const screenX = (e.clientX - rect.left) * scaleFactorX;
+  const screenY = (e.clientY - rect.top) * scaleFactorY;
+  
+  // Convert to world coordinates
+  const mx = (screenX - panOffset.x) / zoomLevel;
+  const my = (screenY - panOffset.y) / zoomLevel;
   
   let finalPos;
   let x, y;
@@ -2003,6 +2315,7 @@ canvas.addEventListener('click', async (e) => {
   
   await pywebview.api.add_point(x, y, activeBundle);
   bundles[activeBundle].push([parseFloat(x), parseFloat(y)]);
+  addHistoryItem('Add Point', `Bundle ${activeBundle} at (${x}, ${y})`);
   
   lastPlacedPoint = finalPos;
   
@@ -2037,9 +2350,147 @@ window.addEventListener('keydown', (e) => {
 });
 
 // ===== Results Display =====
+// History tracking
+let history = [];
+
+function addHistoryItem(action, details) {
+  const time = new Date().toLocaleTimeString();
+  const item = { time, action, details };
+  history.push(item);
+  updateHistoryDisplay();
+}
+
+// Export/Import functionality
+function exportSession() {
+  const sessionData = {
+    bundles,
+    history,
+    settings: {
+      scaleX,
+      scaleY,
+      zoomLevel,
+      panOffset,
+      unit: document.getElementById('unit').value,
+      material: document.getElementById('material').value,
+      length: document.getElementById('length').value,
+      radius: document.getElementById('radius').value,
+      freq: document.getElementById('freq').value,
+      gmr: {
+        A: document.getElementById('gA').value,
+        B: document.getElementById('gB').value,
+        C: document.getElementById('gC').value
+      }
+    }
+  };
+  
+  const blob = new Blob([JSON.stringify(sessionData, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `transmission-line-session-${new Date().toISOString().split('T')[0]}.json`;
+  a.click();
+  URL.revokeObjectURL(url);
+  
+  addHistoryItem('Export', 'Session exported to file');
+}
+
+function importSession() {
+  document.getElementById('importFile').click();
+}
+
+async function handleImport(event) {
+  const file = event.target.files[0];
+  if (!file) return;
+  
+  try {
+    const text = await file.text();
+    const data = JSON.parse(text);
+    
+    // Restore settings
+    document.getElementById('unit').value = data.settings.unit;
+    document.getElementById('material').value = data.settings.material;
+    document.getElementById('length').value = data.settings.length;
+    document.getElementById('radius').value = data.settings.radius;
+    document.getElementById('freq').value = data.settings.freq;
+    document.getElementById('gA').value = data.settings.gmr.A;
+    document.getElementById('gB').value = data.settings.gmr.B;
+    document.getElementById('gC').value = data.settings.gmr.C;
+    document.getElementById('scaleX').value = data.settings.scaleX;
+    document.getElementById('scaleY').value = data.settings.scaleY;
+    
+    // Update internal variables
+    scaleX = data.settings.scaleX;
+    scaleY = data.settings.scaleY;
+    zoomLevel = data.settings.zoomLevel;
+    panOffset = data.settings.panOffset;
+    
+    // Clear existing bundles
+    await pywebview.api.clear_all();
+    bundles = {A: [], B: [], C: []};
+    
+    // Restore bundles
+    for (const [bundle, points] of Object.entries(data.bundles)) {
+      for (const [x, y] of points) {
+        await pywebview.api.add_point(x, y, bundle);
+        bundles[bundle].push([x, y]);
+      }
+    }
+    
+    // Update everything
+    await updateUnit();
+    await updateLineParams();
+    await setGMRs();
+    
+    history = data.history || [];
+    updateHistoryDisplay();
+    redraw();
+    
+    addHistoryItem('Import', 'Session imported from file');
+  } catch (err) {
+    console.error('Import error:', err);
+    alert('Error importing session file. Please check the file format.');
+  }
+  
+  event.target.value = ''; // Reset file input
+}
+
+function updateHistoryDisplay() {
+  const container = document.getElementById('historyContainer');
+  if (!container) return;
+  
+  const html = history.map(item => `
+    <div class="history-item">
+      <span class="action">${item.action}${item.details ? ': ' + item.details : ''}</span>
+      <span class="time">${item.time}</span>
+    </div>
+  `).join('');
+  
+  container.innerHTML = html;
+  container.scrollTop = container.scrollHeight;
+}
+
 async function updateResults() {
   const results = await pywebview.api.compute_results();
   const container = document.getElementById('results');
+  const historyList = document.getElementById('historyList');
+  
+  // Update history list if we have history
+  if (results.history && results.history.length > 0) {
+    historyList.innerHTML = results.history.map(entry => `
+      <div class="history-item">
+        <div class="history-timestamp">${entry.timestamp}</div>
+        <div class="history-config">
+          ${entry.config.material} • ${entry.config.length}km • ${entry.config.frequency}Hz
+        </div>
+        <div class="history-details">
+          <div>GMR: ${Object.keys(entry.config.r_self).map(k => 
+            `${k}: ${entry.config.r_self[k].toFixed(6)}m`).join(', ')}</div>
+          <div>Points: ${Object.keys(entry.config.bundles).map(k => 
+            `${k}: ${entry.config.bundles[k].length}`).join(', ')}</div>
+        </div>
+      </div>
+    `).join('');
+  }
   
   if (results.gmr.length === 0 && results.gmd.length === 0) {
     container.innerHTML = `
@@ -2141,6 +2592,7 @@ async function setGMRs() {
   await pywebview.api.set_gmr("A", A);
   await pywebview.api.set_gmr("B", B);
   await pywebview.api.set_gmr("C", C);
+  addHistoryItem('Update GMR', `A: ${A}, B: ${B}, C: ${C}`);
   await updateResults();
 }
 
@@ -2718,6 +3170,13 @@ navigator.clipboard.writeText(currentLatexContent).then(() => {
   });
 }
 
+
+// ===== History Management =====
+document.getElementById('clearHistory').addEventListener('click', async () => {
+  await pywebview.api.clear_history();
+  document.getElementById('historyList').innerHTML = '';
+  await updateResults();
+});
 
 // ===== Initialize =====
 redraw();
