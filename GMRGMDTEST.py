@@ -174,8 +174,10 @@ class GMDGMRApp:
     """Manages the state and calculations for the transmission line calculator."""
     def __init__(self):
         """Initializes the GMDGMRApp with default values."""
+        """Initializes the GMDGMRApp with default values."""
         self.bundles = {"A": [], "B": [], "C": []}
-        self.r_self = {"A": 0.01, "B": 0.01, "C": 0.01}
+        # Initialize with 0.7788 * default radius for solid conductors
+        self.r_self = {"A": 0.01 * 0.7788, "B": 0.01 * 0.7788, "C": 0.01 * 0.7788}
         self.unit = "m"
         self.scale_x = 40
         self.scale_y = 40
@@ -223,8 +225,9 @@ class GMDGMRApp:
         Returns:
             str: A confirmation message.
         """
-        self.r_self[bundle] = float(val) * UNIT_CONVERSIONS[self.unit]
-        return f"Set GMR for {bundle} = {val} {self.unit}"
+        gmr_value = float(val) * 0.7788 * UNIT_CONVERSIONS[self.unit]
+        self.r_self[bundle] = gmr_value
+        return f"Set GMR for {bundle} = {val} {self.unit} (r' = {gmr_value:.6f} m)"
 
     def set_line_params(self, material, length, radius, freq):
         """Sets the physical parameters of the transmission line.
@@ -387,7 +390,7 @@ class GMDGMRApp:
             
             # Configure Gemini
             genai.configure(api_key=key)
-            model = genai.GenerativeModel('gemini-2.5-pro')
+            model = genai.GenerativeModel('gemini-2.5-flash-lite')
             
             # Get current results
             results = self.compute_results()
@@ -397,39 +400,62 @@ class GMDGMRApp:
                 return "Error: No conductor data to export. Please add some points first."
             
             # Create detailed prompt for Gemini
-            prompt = f"""Generate a complete LaTeX document for a transmission line parameter calculation solution.
+            prompt = f"""You are a LaTeX document generator for transmission line parameter calculations with expertise in coordinate rectification. Create a complete, professionally formatted LaTeX document with the following data:
 
-    Problem Configuration:
-    - Material: {self.material}
-    - Line Length: {self.length} km
-    - Conductor Radius: {self.conductor_radius} m
-    - Frequency: {self.freq} Hz
-    - Units: {self.unit}
+INPUT DATA:
+Material: {self.material}
+Line Length: {self.length} km
+Conductor Radius: {self.conductor_radius} m
+Frequency: {self.freq} Hz
+Units: {self.unit}
 
-    Bundle Configurations (coordinates in meters):
-    {json.dumps({k: v for k, v in self.bundles.items() if v}, indent=2)}
+Bundle Configuration (meters):
+{json.dumps({k: v for k, v in self.bundles.items() if v}, indent=2)}
 
-    Self GMR Values (meters):
-    {json.dumps(self.r_self, indent=2)}
+GMR Values (meters):
+{json.dumps(self.r_self, indent=2)}
 
-    Calculated Results:
-    {json.dumps(results, indent=2)}
+Calculation Results:
+{json.dumps(results, indent=2)}
 
-    Create a complete LaTeX document with:
-    1. Document class and necessary packages (amsmath, geometry, booktabs, etc.)
-    2. Title: "Transmission Line Parameter Calculation"
-    3. Problem statement with given data
-    4. Step-by-step GMR calculations for each bundle with detailed formulas
-    5. Step-by-step GMD calculations between bundles with detailed formulas
-    6. Resistance calculation with complete formula derivation
-    7. Inductance calculation with complete formula derivation
-    8. Capacitance calculation with complete formula derivation
-    9. Final results summary in a professional table
-    10. All equations numbered and properly formatted
-    11. Include all intermediate calculation steps
+REQUIRED DOCUMENT SECTIONS:
+1. Title: "Transmission Line Parameter Calculation"
+2. Problem Statement
+3. Conductor Configuration Analysis
+   - Original coordinate plot using TikZ
+   - Coordinate accuracy analysis
+   - Rectified coordinates based on standard transmission line patterns
+4. Step-by-step Calculations
+   - GMR/GMD using original coordinates
+   - GMR/GMD using rectified coordinates (if significant discrepancies found)
+   - Analysis of differences between original and rectified values
+5. Derivation of RLC Parameters
+   - Calculations using original coordinates
+   - Calculations using rectified coordinates (if applicable)
+   - Impact analysis of coordinate rectification on final results
+6. Results Summary
+   - Comparative table showing original vs. rectified results
+   - Percentage differences and engineering significance
+   - Recommendations based on the analysis
 
-    Use proper LaTeX formatting with \\documentclass{{article}}, \\begin{{document}}, etc.
-    The document should be complete and ready to compile with pdflatex."""
+COORDINATE RECTIFICATION GUIDELINES:
+- Analyze coordinate patterns for standard transmission line configurations
+- Check for small deviations (0.001-0.01m) from expected symmetrical patterns
+- Identify and correct potential human input errors
+- Consider standard spacing patterns in transmission line design
+- Document assumptions made during rectification
+
+FORMATTING REQUIREMENTS:
+- Use article class with amsmath, geometry, booktabs, tikz, babel[english], fontspec, fancyhdr, hyperref
+- Set Inter as main font
+- Right header: "Generated by the BCMSV GMR/GMD Line Parameters Calculator Application, 2025-20256 from BSEE-4A"
+- A4 paper with 2.5cm top/bottom margins, 2cm left/right margins
+- Number all equations
+- Include side-by-side TikZ plots showing original vs. rectified coordinates
+- Use booktabs for professional comparison tables
+- Use color coding in plots to highlight rectified points
+
+Generate LaTeX code that can be directly compiled with pdflatex. Ensure the document clearly explains any rectification decisions and their impact on the final results."""
 
             # Generate LaTeX
             response = model.generate_content(prompt)
@@ -448,6 +474,91 @@ class GMDGMRApp:
             
         except Exception as e:
             return f"Error generating LaTeX: {str(e)}"
+    def generate_pdf_from_latex(self, latex_content):
+        """Generates a PDF from LaTeX content using pdflatex.
+        
+        Args:
+            latex_content (str): The LaTeX document content
+            
+        Returns:
+            dict: {'success': bool, 'path': str, 'error': str}
+        """
+        import tempfile
+        import subprocess
+        import os
+        from tkinter import Tk, filedialog
+        
+        try:
+            # Create temporary directory for LaTeX compilation
+            with tempfile.TemporaryDirectory() as tmpdir:
+                # Write LaTeX content to file
+                tex_file = os.path.join(tmpdir, 'solution.tex')
+                with open(tex_file, 'w', encoding='utf-8') as f:
+                    f.write(latex_content)
+                
+                # Compile LaTeX to PDF (run twice for proper references)
+                for _ in range(2):
+                    result = subprocess.run(
+                        ['pdflatex', '-interaction=nonstopmode', '-output-directory', tmpdir, tex_file],
+                        capture_output=True,
+                        timeout=30
+                    )
+                
+                pdf_file = os.path.join(tmpdir, 'solution.pdf')
+                
+                if not os.path.exists(pdf_file):
+                    return {
+                        'success': False,
+                        'error': 'PDF compilation failed. Make sure pdflatex is installed.'
+                    }
+                
+                # Open save dialog
+                root = Tk()
+                root.withdraw()
+                root.attributes('-topmost', True)
+                
+                timestamp = __import__('datetime').datetime.now().strftime('%Y%m%d_%H%M%S')
+                default_filename = f'transmission_line_solution_{timestamp}.pdf'
+                
+                save_path = filedialog.asksaveasfilename(
+                    defaultextension='.pdf',
+                    filetypes=[('PDF files', '*.pdf'), ('All files', '*.*')],
+                    initialfile=default_filename,
+                    title='Save PDF Solution'
+                )
+                
+                root.destroy()
+                
+                if save_path:
+                    # Copy PDF to selected location
+                    import shutil
+                    shutil.copy2(pdf_file, save_path)
+                    
+                    return {
+                        'success': True,
+                        'path': save_path
+                    }
+                else:
+                    return {
+                        'success': False,
+                        'error': 'Save cancelled by user'
+                    }
+                    
+        except FileNotFoundError:
+            return {
+                'success': False,
+                'error': 'pdflatex not found. Please install LaTeX (TeX Live, MiKTeX, or MacTeX).'
+            }
+        except subprocess.TimeoutExpired:
+            return {
+                'success': False,
+                'error': 'PDF compilation timed out.'
+            }
+        except Exception as e:
+            return {
+                'success': False,
+                'error': str(e)
+            }
 # ---------- Modern Windows-Style UI ----------
 html = """
 <!DOCTYPE html>
@@ -524,9 +635,9 @@ body {
   overflow: hidden;
 }
 
-/* Left Sidebar */
+/* Left Sidebar - INCREASED WIDTH */
 .sidebar {
-  width: 320px;
+  width: 420px; /* Increased from 320px */
   background: var(--panel);
   border-right: 1px solid var(--border);
   display: flex;
@@ -535,7 +646,7 @@ body {
 }
 
 .sidebar-section {
-  padding: 20px;
+  padding: 24px; /* Increased from 20px */
   border-bottom: 1px solid var(--border);
 }
 
@@ -549,11 +660,11 @@ body {
   color: var(--fg-secondary);
   text-transform: uppercase;
   letter-spacing: 0.5px;
-  margin-bottom: 16px;
+  margin-bottom: 18px; /* Increased from 16px */
 }
 
 .form-group {
-  margin-bottom: 16px;
+  margin-bottom: 18px; /* Increased from 16px */
 }
 
 .form-group:last-child {
@@ -565,12 +676,12 @@ body {
   font-size: 13px;
   font-weight: 500;
   color: var(--fg);
-  margin-bottom: 6px;
+  margin-bottom: 8px; /* Increased from 6px */
 }
 
 .form-control {
   width: 100%;
-  padding: 8px 10px;
+  padding: 10px 12px; /* Increased from 8px 10px */
   border: 1px solid var(--border);
   border-radius: var(--radius);
   font-family: inherit;
@@ -592,7 +703,7 @@ body {
 
 .form-row {
   display: flex;
-  gap: 10px;
+  gap: 12px; /* Increased from 10px */
 }
 
 .form-row .form-group {
@@ -601,7 +712,7 @@ body {
 
 /* Buttons */
 .btn {
-  padding: 8px 16px;
+  padding: 10px 18px; /* Increased from 8px 16px */
   border: none;
   border-radius: var(--radius);
   font-family: inherit;
@@ -648,7 +759,7 @@ body {
 }
 
 .btn-sm {
-  padding: 6px 12px;
+  padding: 8px 14px; /* Increased from 6px 12px */
   font-size: 12px;
 }
 
@@ -659,13 +770,13 @@ body {
 /* Bundle Selector */
 .bundle-selector {
   display: flex;
-  gap: 8px;
-  margin-bottom: 16px;
+  gap: 10px; /* Increased from 8px */
+  margin-bottom: 18px; /* Increased from 16px */
 }
 
 .bundle-btn {
   flex: 1;
-  padding: 10px;
+  padding: 12px; /* Increased from 10px */
   border: 2px solid var(--border);
   border-radius: var(--radius);
   background: var(--panel);
@@ -819,7 +930,7 @@ canvas {
 
 /* Right Panel */
 .results-panel {
-  width: 380px;
+  width: 400px;
   background: var(--panel);
   border-left: 1px solid var(--border);
   display: flex;
@@ -987,6 +1098,10 @@ canvas {
           <input id="gC" type="number" step="0.001" value="0.01" class="form-control">
         </div>
       </div>
+
+      <div style="font-size: 11px; color: var(--fg-secondary); margin-bottom: 12px; font-style: italic;">
+         Note! GMR automatically calculated as 0.7788 × radius for solid conductors
+      </div>
       
       <button class="btn btn-primary btn-sm btn-block" onclick="setGMRs()">Apply GMR Values</button>
     </div>
@@ -1021,21 +1136,22 @@ canvas {
       </div>
       
       <button class="btn btn-primary btn-block" onclick="updateLineParams()">Calculate Parameters</button>
-      <!-- LaTeX Export -->
-      <div class="sidebar-section">
-        <div class="section-title">Export Solution</div>
-        
-        <div class="form-group">
-          <label class="form-label">Gemini API Key</label>
-          <input id="apiKey" type="password" placeholder="Enter API key" class="form-control">
-        </div>
-        
-        <button class="btn btn-primary btn-block" onclick="exportLatex()">
-          Generate LaTeX Solution
-        </button>
-        
-        <div id="exportStatus" style="margin-top: 10px; font-size: 12px; color: var(--fg-secondary);"></div>
+    </div>
+    
+    <!-- LaTeX Export -->
+    <div class="sidebar-section">
+      <div class="section-title">Export Solution</div>
+      
+      <div class="form-group">
+        <label class="form-label">Gemini API Key</label>
+        <input id="apiKey" type="password" placeholder="Enter API key" class="form-control">
       </div>
+      
+      <button class="btn btn-primary btn-block" onclick="exportLatex()">
+        Generate LaTeX Solution
+      </button>
+      
+      <div id="exportStatus" style="margin-top: 10px; font-size: 12px; color: var(--fg-secondary);"></div>
     </div>
     
   </div>
@@ -1115,6 +1231,7 @@ let allPoints = [];
 let lastPlacedPoint = null;
 let mousePos = {x: 0, y: 0};
 let shiftKeyPressed = false;
+let referencePoint = null; // Tracks if first point was from another bundle
 
 // Track keyboard state
 let inputDialog = null;
@@ -1482,6 +1599,7 @@ function drawPreviewLine() {
 // ===== Bundle Management =====
 function setActiveBundle(bundle) {
   activeBundle = bundle;
+  referencePoint = null; // Clear reference when switching bundles
   document.querySelectorAll('.bundle-btn').forEach(btn => {
     btn.classList.toggle('active', btn.dataset.bundle === bundle);
   });
@@ -1534,7 +1652,7 @@ function drawBundleConnections(points, color) {
   ctx.lineWidth = 2;
   ctx.globalAlpha = 1;
   
-  // Draw actual line connections
+  // Draw line connections between consecutive points
   for (let i = 0; i < points.length - 1; i++) {
     const [x1, y1] = points[i];
     const [x2, y2] = points[i + 1];
@@ -1569,21 +1687,44 @@ function drawBundleConnections(points, color) {
     ctx.textAlign = 'left';
   }
   
+  // Draw closing line (last point back to first point) if 3+ conductors
+  if (points.length >= 3) {
+    const [x1, y1] = points[points.length - 1]; // Last point
+    const [x2, y2] = points[0]; // First point
+    const cx1 = origin.x + x1 * scaleX;
+    const cy1 = origin.y - y1 * scaleY;
+    const cx2 = origin.x + x2 * scaleX;
+    const cy2 = origin.y - y2 * scaleY;
+    
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(cx1, cy1);
+    ctx.lineTo(cx2, cy2);
+    ctx.stroke();
+    
+    // Draw closing segment distance
+    const dx = x2 - x1;
+    const dy = y2 - y1;
+    const dist = Math.sqrt(dx * dx + dy * dy);
+    
+    const mx = (cx1 + cx2) / 2;
+    const my = (cy1 + cy2) / 2;
+    
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.95)';
+    ctx.fillRect(mx - 30, my - 20, 60, 20);
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 1;
+    ctx.strokeRect(mx - 30, my - 20, 60, 20);
+    
+    ctx.fillStyle = color;
+    ctx.font = 'bold 11px Consolas, Monaco, monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText(dist.toFixed(3), mx, my - 7);
+    ctx.textAlign = 'left';
+  }
+  
   ctx.globalAlpha = 1;
-}
-
-function getBundleCenter(points) {
-  if (points.length === 0) return null;
-  
-  let cx = 0, cy = 0;
-  points.forEach(([x, y]) => {
-    cx += x;
-    cy += y;
-  });
-  cx /= points.length;
-  cy /= points.length;
-  
-  return {x: cx, y: cy};
 }
 
 function drawBundleCircle(points, color) {
@@ -1816,16 +1957,48 @@ canvas.addEventListener('click', async (e) => {
   
   let finalPos;
   let x, y;
+  let isSnappedToDifferentBundle = false;
   
   if (snapPoint) {
     x = snapPoint.coordX.toFixed(3);
     y = snapPoint.coordY.toFixed(3);
     finalPos = {x: snapPoint.x, y: snapPoint.y};
+    
+    // Check if we're snapping to a different bundle
+    if (snapPoint.bundle !== activeBundle) {
+      isSnappedToDifferentBundle = true;
+    }
   } else {
     const constrainedPos = getConstrainedPoint(mx, my);
     x = ((constrainedPos.x - origin.x) / scaleX).toFixed(3);
     y = ((origin.y - constrainedPos.y) / scaleY).toFixed(3);
     finalPos = {x: constrainedPos.x, y: constrainedPos.y};
+  }
+  
+  // Check if this is the first point of the current bundle
+  const isFirstPoint = bundles[activeBundle].length === 0;
+  
+  // If this is the first point and snapped to different bundle, mark as reference
+  if (isFirstPoint && isSnappedToDifferentBundle) {
+    referencePoint = {
+      x: parseFloat(x),
+      y: parseFloat(y),
+      bundle: activeBundle
+    };
+  }
+  
+  // If this is the second point and we have a reference point, delete the first
+  if (bundles[activeBundle].length === 1 && referencePoint && referencePoint.bundle === activeBundle) {
+    // Remove the reference point from backend and frontend
+    bundles[activeBundle].shift(); // Remove first element
+    await pywebview.api.clear_bundle(activeBundle);
+    
+    // Re-add all remaining points (none in this case since we just removed the only one)
+    for (let point of bundles[activeBundle]) {
+      await pywebview.api.add_point(point[0], point[1], activeBundle);
+    }
+    
+    referencePoint = null; // Clear reference
   }
   
   await pywebview.api.add_point(x, y, activeBundle);
@@ -2000,6 +2173,7 @@ async function clearCurrent() {
   await pywebview.api.clear_bundle(activeBundle);
   bundles[activeBundle] = [];
   lastPlacedPoint = null;
+  referencePoint = null; // Clear reference when clearing bundle
   updateAllPoints();
   redraw();
   await updateResults();
@@ -2009,6 +2183,7 @@ async function clearAll() {
   await pywebview.api.clear_all();
   bundles = {A: [], B: [], C: []};
   lastPlacedPoint = null;
+  referencePoint = null; // Clear reference when clearing all
   updateAllPoints();
   redraw();
   await updateResults();
@@ -2017,433 +2192,533 @@ async function clearAll() {
 let currentLatexContent = null;
 
 async function exportLatex() {
-  const apiKey = document.getElementById('apiKey').value;
-  const statusDiv = document.getElementById('exportStatus');
-  
-  if (!apiKey) {
-    statusDiv.style.color = '#d13438';
-    statusDiv.textContent = '⚠️ Please enter your Gemini API key';
-    return;
-  }
-  
-  // Show loading modal
-  showLoadingModal();
-  
-  try {
-    const latex = await pywebview.api.export_latex_solution(apiKey);
-    
-    closeLoadingModal();
-    
-    if (latex.startsWith('Error')) {
-      showResultModal('error', 'Generation Failed', latex);
-    } else {
-      showLatexModal(latex);
-    }
-  } catch (error) {
-    closeLoadingModal();
-    showResultModal('error', 'Export Failed', error.toString());
-  }
+  const apiKey = document.getElementById('apiKey').value;
+  const statusDiv = document.getElementById('exportStatus');
+  
+  if (!apiKey) {
+    statusDiv.style.color = '#d13438';
+    statusDiv.textContent = '⚠️ Please enter your Gemini API key';
+    return;
+  }
+  
+  // Show loading modal
+  showLoadingModal();
+  
+  try {
+    const latex = await pywebview.api.export_latex_solution(apiKey);
+    
+    closeLoadingModal();
+    
+    if (latex.startsWith('Error')) {
+      showResultModal('error', 'Generation Failed', latex);
+    } else {
+      showLatexModal(latex);
+    }
+  } catch (error) {
+    closeLoadingModal();
+    showResultModal('error', 'Export Failed', error.toString());
+  }
 }
 
 function showLoadingModal() {
-  const modal = document.createElement('div');
-  modal.id = 'export-loading-modal';
-  modal.style.cssText = `
-    position: fixed;
-    top: 0;
-    left: 0;
-    width: 100%;
-    height: 100%;
-    background: rgba(0, 0, 0, 0.6);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    z-index: 10000;
-    backdrop-filter: blur(4px);
-  `;
-  
-  modal.innerHTML = `
-    <div style="
-      background: white;
-      border-radius: 12px;
-      padding: 40px;
-      box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
-      text-align: center;
-      max-width: 400px;
-      animation: modalFadeIn 0.3s ease;
-    ">
-      <div style="
-        width: 60px;
-        height: 60px;
-        border: 4px solid #e1dfdd;
-        border-top-color: #0078d4;
-        border-radius: 50%;
-        margin: 0 auto 24px;
-        animation: spin 1s linear infinite;
-      "></div>
-      
-      <h3 style="
-        font-size: 18px;
-        font-weight: 600;
-        color: #1f1f1f;
-        margin-bottom: 12px;
-      ">Generating LaTeX Solution</h3>
-      
-      <p style="
-        font-size: 14px;
-        color: #605e5c;
-        line-height: 1.6;
-      ">Please wait while Gemini AI creates your detailed step-by-step solution document...</p>
-      
-      <div style="
-        margin-top: 20px;
-        padding: 12px;
-        background: #f3f3f3;
-        border-radius: 6px;
-        font-size: 12px;
-        color: #605e5c;
-      ">⏱️ This usually takes 5-15 seconds</div>
-    </div>
-  `;
-  
-  document.body.appendChild(modal);
-  
-  // Add animations if not already added
-  if (!document.getElementById('modal-animations')) {
-    const style = document.createElement('style');
-    style.id = 'modal-animations';
-    style.textContent = `
-      @keyframes spin {
-        to { transform: rotate(360deg); }
-      }
-      @keyframes modalFadeIn {
-        from { opacity: 0; transform: scale(0.9); }
-        to { opacity: 1; transform: scale(1); }
-      }
-      @keyframes modalFadeOut {
-        from { opacity: 1; transform: scale(1); }
-        to { opacity: 0; transform: scale(0.9); }
-      }
-    `;
-    document.head.appendChild(style);
-  }
+  const modal = document.createElement('div');
+  modal.id = 'export-loading-modal';
+  modal.style.cssText = `
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.6);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 10000;
+    backdrop-filter: blur(4px);
+  `;
+  
+  modal.innerHTML = `
+    <div style="
+      background: white;
+      border-radius: 12px;
+      padding: 40px;
+      box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+      text-align: center;
+      max-width: 400px;
+      animation: modalFadeIn 0.3s ease;
+    ">
+      <div style="
+        width: 60px;
+        height: 60px;
+        border: 4px solid #e1dfdd;
+        border-top-color: #0078d4;
+        border-radius: 50%;
+        margin: 0 auto 24px;
+        animation: spin 1s linear infinite;
+      "></div>
+      
+      <h3 style="
+        font-size: 18px;
+        font-weight: 600;
+        color: #1f1f1f;
+        margin-bottom: 12px;
+      ">Generating LaTeX Solution</h3>
+      
+      <p style="
+        font-size: 14px;
+        color: #605e5c;
+        line-height: 1.6;
+      ">Please wait while Gemini AI creates your detailed step-by-step solution document...</p>
+      
+      <div style="
+        margin-top: 20px;
+        padding: 12px;
+        background: #f3f3f3;
+        border-radius: 6px;
+        font-size: 12px;
+        color: #605e5c;
+      ">⏱️ This usually takes 5-15 seconds</div>
+    </div>
+  `;
+  
+  document.body.appendChild(modal);
+  
+  // Add animations if not already added
+  if (!document.getElementById('modal-animations')) {
+    const style = document.createElement('style');
+    style.id = 'modal-animations';
+    style.textContent = `
+      @keyframes spin {
+        to { transform: rotate(360deg); }
+      }
+      @keyframes modalFadeIn {
+        from { opacity: 0; transform: scale(0.9); }
+        to { opacity: 1; transform: scale(1); }
+      }
+      @keyframes modalFadeOut {
+        from { opacity: 1; transform: scale(1); }
+        to { opacity: 0; transform: scale(0.9); }
+      }
+    `;
+    document.head.appendChild(style);
+  }
 }
 
 function closeLoadingModal() {
-  const modal = document.getElementById('export-loading-modal');
-  if (modal) {
-    modal.style.animation = 'modalFadeOut 0.3s ease';
-    setTimeout(() => modal.remove(), 300);
-  }
+  const modal = document.getElementById('export-loading-modal');
+  if (modal) {
+    modal.style.animation = 'modalFadeOut 0.3s ease';
+    setTimeout(() => modal.remove(), 300);
+  }
 }
 
 function showResultModal(type, title, message) {
-  const isSuccess = type === 'success';
-  const icon = isSuccess ? '✅' : '❌';
-  const color = isSuccess ? '#107c10' : '#d13438';
-  
-  const modal = document.createElement('div');
-  modal.id = 'export-result-modal';
-  modal.style.cssText = `
-    position: fixed;
-    top: 0;
-    left: 0;
-    width: 100%;
-    height: 100%;
-    background: rgba(0, 0, 0, 0.6);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    z-index: 10000;
-    backdrop-filter: blur(4px);
-    animation: modalFadeIn 0.3s ease;
-  `;
-  
-  modal.innerHTML = `
-    <div style="
-      background: white;
-      border-radius: 12px;
-      padding: 40px;
-      box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
-      text-align: center;
-      max-width: 450px;
-      animation: modalFadeIn 0.3s ease;
-    ">
-      <div style="
-        font-size: 48px;
-        margin-bottom: 20px;
-      ">${icon}</div>
-      
-      <h3 style="
-        font-size: 20px;
-        font-weight: 600;
-        color: ${color};
-        margin-bottom: 16px;
-      ">${title}</h3>
-      
-      <p style="
-        font-size: 14px;
-        color: #605e5c;
-        line-height: 1.6;
-        margin-bottom: 24px;
-      ">${message}</p>
-      
-      <button onclick="closeResultModal()" style="
-        padding: 12px 32px;
-        background: ${color};
-        color: white;
-        border: none;
-        border-radius: 6px;
-        font-size: 14px;
-        font-weight: 500;
-        cursor: pointer;
-        transition: all 0.15s ease;
-      " onmouseover="this.style.opacity='0.9'" onmouseout="this.style.opacity='1'">
-        Close
-      </button>
-    </div>
-  `;
-  
-  document.body.appendChild(modal);
-  
-  // Close on background click
-  modal.addEventListener('click', (e) => {
-    if (e.target === modal) {
-      closeResultModal();
-    }
-  });
+  const isSuccess = type === 'success';
+  const icon = isSuccess ? '✅' : '❌';
+  const color = isSuccess ? '#107c10' : '#d13438';
+  
+  const modal = document.createElement('div');
+  modal.id = 'export-result-modal';
+  modal.style.cssText = `
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.6);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 10000;
+    backdrop-filter: blur(4px);
+    animation: modalFadeIn 0.3s ease;
+  `;
+  
+  modal.innerHTML = `
+    <div style="
+      background: white;
+      border-radius: 12px;
+      padding: 40px;
+      box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+      text-align: center;
+      max-width: 450px;
+      animation: modalFadeIn 0.3s ease;
+    ">
+      <div style="
+        font-size: 48px;
+        margin-bottom: 20px;
+      ">${icon}</div>
+      
+      <h3 style="
+        font-size: 20px;
+        font-weight: 600;
+        color: ${color};
+        margin-bottom: 16px;
+      ">${title}</h3>
+      
+      <p style="
+        font-size: 14px;
+        color: #605e5c;
+        line-height: 1.6;
+        margin-bottom: 24px;
+      ">${message}</p>
+      
+      <button onclick="closeResultModal()" style="
+        padding: 12px 32px;
+        background: ${color};
+        color: white;
+        border: none;
+        border-radius: 6px;
+        font-size: 14px;
+        font-weight: 500;
+        cursor: pointer;
+        transition: all 0.15s ease;
+      " onmouseover="this.style.opacity='0.9'" onmouseout="this.style.opacity='1'">
+        Close
+      </button>
+    </div>
+  `;
+  
+  document.body.appendChild(modal);
+  
+  // Close on background click
+  modal.addEventListener('click', (e) => {
+    if (e.target === modal) {
+      closeResultModal();
+    }
+  });
 }
 
 function closeResultModal() {
-  const modal = document.getElementById('export-result-modal');
-  if (modal) {
-    modal.style.animation = 'modalFadeOut 0.3s ease';
-    setTimeout(() => modal.remove(), 300);
-  }
+  const modal = document.getElementById('export-result-modal');
+  if (modal) {
+    modal.style.animation = 'modalFadeOut 0.3s ease';
+    setTimeout(() => modal.remove(), 300);
+  }
 }
 
 function showLatexModal(latexContent) {
-  currentLatexContent = latexContent;
-  
-  const modal = document.createElement('div');
-  modal.id = 'latex-display-modal';
-  modal.style.cssText = `
-    position: fixed;
-    top: 0;
-    left: 0;
-    width: 100%;
-    height: 100%;
-    background: rgba(0, 0, 0, 0.6);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    z-index: 10000;
-    backdrop-filter: blur(4px);
-    animation: modalFadeIn 0.3s ease;
-  `;
-  
-  const escapedContent = latexContent
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#039;');
-  
-  modal.innerHTML = `
-    <div style="
-      background: white;
-      border-radius: 12px;
-      padding: 0;
-      box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
-      max-width: 900px;
-      width: 90%;
-      max-height: 85vh;
-      display: flex;
-      flex-direction: column;
-      animation: modalFadeIn 0.3s ease;
-    ">
-            <div style="
-        padding: 24px 32px;
-        border-bottom: 1px solid #e1dfdd;
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-      ">
-        <div>
-          <h3 style="
-            font-size: 20px;
-            font-weight: 600;
-            color: #1f1f1f;
-            margin-bottom: 4px;
-          ">✅ LaTeX Solution Generated</h3>
-          <p style="
-            font-size: 13px;
-            color: #605e5c;
-          ">Copy the code below or download it as a .tex file</p>
-        </div>
-        <button onclick="closeLatexModal()" style="
-          width: 32px;
-          height: 32px;
-          border: none;
-          background: transparent;
-          color: #605e5c;
-          font-size: 24px;
-          cursor: pointer;
-          border-radius: 4px;
-      _       transition: all 0.15s ease;
-          line-height: 1;
-        " onmouseover="this.style.background='#f3f3f3'" onmouseout="this.style.background='transparent'">×</button>
-      </div>
-      
-            <div style="
-        flex: 1;
-        overflow-y: auto;
-        padding: 24px 32px;
-        background: #f9f9f9;
-      ">
-        <pre style="
-          background: #1e1e1e;
-          color: #d4d4d4;
-          padding: 20px;
-          border-radius: 8px;
-          font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
-          font-size: 12px;
-          line-height: 1.6;
-          overflow-x: auto;
-          margin: 0;
-          white-space: pre-wrap;
-          word-wrap: break-word;
-        ">${escapedContent}</pre>
-      </div>
-      
-            <div style="
-        padding: 20px 32px;
-        border-top: 1px solid #e1dfdd;
-        display: flex;
-        gap: 12px;
-        justify-content: flex-end;
-      ">
-        <button onclick="copyLatexToClipboard(event)" style="
-          padding: 10px 24px;
-          background: #0078d4;
-          color: white;
-          border: none;
-          border-radius: 6px;
-          font-size: 14px;
-          font-weight: 500;
-          cursor: pointer;
-          transition: all 0.15s ease;
-          display: flex;
-          align-items: center;
-          gap: 8px;
-        " onmouseover="this.style.background='#106ebe'" onmouseout="this.style.background='#0078d4'">
-          📋 Copy to Clipboard
-        </button>
-        
-        <button onclick="downloadLatex(event)" style="
-          padding: 10px 24px;
-          background: #107c10;
-          color: white;
-          border: none;
-          border-radius: 6px;
-          font-size: 14px;
-s         font-weight: 500;
-          cursor: pointer;
-          transition: all 0.15s ease;
-  S       display: flex;
-          align-items: center;
-          gap: 8px;
-        " onmouseover="this.style.background='#0e6b0e'" onmouseout="this.style.background='#107c10'">
-          💾 Download .tex File
-        </button>
-        
-        <button onclick="closeLatexModal()" style="
-          padding: 10px 24px;
-          background: #fafafa;
-          color: #1f1f1f;
-          border: 1px solid #e1dfdd;
-          border-radius: 6px;
-          font-size: 14px;
-nbsp;         font-weight: 500;
-          cursor: pointer;
-          transition: all 0.15s ease;
-        " onmouseover="this.style.background='#f5f5f5'" onmouseout="this.style.background='#fafafa'">
-Click       Close
-        </button>
-      </div>
-    </div>
-  `;
-  
-  document.body.appendChild(modal);
-  
-  // Close on background click
-  modal.addEventListener('click', (e) => {
-    if (e.target === modal) {
-      closeLatexModal();
-    }
-  });
-  
-  // Close on ESC key
-  const escHandler = (e) => {
-    if (e.key === 'Escape') {
-      closeLatexModal();
-DE       document.removeEventListener('keydown', escHandler);
-    }
-  };
-  document.addEventListener('keydown', escHandler);
+  currentLatexContent = latexContent;
+  
+  const modal = document.createElement('div');
+  modal.id = 'latex-display-modal';
+  modal.style.cssText = `
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.6);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 10000;
+    backdrop-filter: blur(4px);
+    animation: modalFadeIn 0.3s ease;
+  `;
+  
+  modal.innerHTML = `
+    <div style="
+      background: white;
+      border-radius: 12px;
+      padding: 0;
+      box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+      max-width: 900px;
+      width: 90%;
+      max-height: 85vh;
+      display: flex;
+      flex-direction: column;
+      animation: modalFadeIn 0.3s ease;
+    ">
+      <!-- Header -->
+      <div style="
+        padding: 24px 32px;
+        border-bottom: 1px solid #e1dfdd;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+      ">
+        <div>
+          <h3 style="
+            font-size: 20px;
+            font-weight: 600;
+            color: #1f1f1f;
+            margin-bottom: 4px;
+          ">✅ LaTeX Solution Generated</h3>
+          <p style="
+            font-size: 13px;
+            color: #605e5c;
+          ">Select and copy the LaTeX code below, or download it as a .tex file</p>
+        </div>
+        <button class="close-latex-btn" style="
+          width: 32px;
+          height: 32px;
+          border: none;
+          background: transparent;
+          color: #605e5c;
+          font-size: 24px;
+          cursor: pointer;
+          border-radius: 4px;
+          transition: all 0.15s ease;
+          line-height: 1;
+        " onmouseover="this.style.background='#f3f3f3'" onmouseout="this.style.background='transparent'">×</button>
+      </div>
+      
+      <!-- Content -->
+      <div style="
+        flex: 1;
+        overflow: hidden;
+        padding: 24px 32px;
+        background: #f9f9f9;
+        display: flex;
+        flex-direction: column;
+      ">
+        <textarea id="latex-content-textarea" readonly style="
+          flex: 1;
+          background: white;
+          color: #1f1f1f;
+          padding: 20px;
+          border: 1px solid #e1dfdd;
+          border-radius: 8px;
+          font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+          font-size: 13px;
+          line-height: 1.6;
+          resize: none;
+          outline: none;
+          cursor: text;
+          overflow-y: auto;
+        ">${latexContent}</textarea>
+      </div>
+      
+      <!-- Footer -->
+      <div style="
+        padding: 20px 32px;
+        border-top: 1px solid #e1dfdd;
+        display: flex;
+        gap: 12px;
+        justify-content: flex-end;
+      ">
+        <button class="select-all-btn" style="
+          padding: 10px 24px;
+          background: #0078d4;
+          color: white;
+          border: none;
+          border-radius: 6px;
+          font-size: 14px;
+          font-weight: 500;
+          cursor: pointer;
+          transition: all 0.15s ease;
+          display: flex;
+          align-items: center;
+          gap: 8px;
+        " onmouseover="this.style.background='#106ebe'" onmouseout="this.style.background='#0078d4'">
+          📋 Select All
+        </button>
+        
+        <button class="copy-latex-btn" style="
+          padding: 10px 24px;
+          background: #107c10;
+          color: white;
+          border: none;
+          border-radius: 6px;
+          font-size: 14px;
+          font-weight: 500;
+          cursor: pointer;
+          transition: all 0.15s ease;
+          display: flex;
+          align-items: center;
+          gap: 8px;
+        " onmouseover="this.style.background='#0e6b0e'" onmouseout="this.style.background='#107c10'">
+          📄 Copy to Clipboard
+        </button>
+        
+        <button class="export-pdf-btn" style="
+          padding: 10px 24px;
+          background: #d83b01;
+          color: white;
+          border: none;
+          border-radius: 6px;
+          font-size: 14px;
+          font-weight: 500;
+          cursor: pointer;
+          transition: all 0.15s ease;
+          display: flex;
+          align-items: center;
+          gap: 8px;
+        " onmouseover="this.style.background='#c43501'" onmouseout="this.style.background='#d83b01'">
+          📑 Export as PDF
+        </button>
+        
+        <button class="download-latex-btn" style="
+          padding: 10px 24px;
+          background: #8e8cd8;
+          color: white;
+          border: none;
+          border-radius: 6px;
+          font-size: 14px;
+          font-weight: 500;
+          cursor: pointer;
+          transition: all 0.15s ease;
+          display: flex;
+          align-items: center;
+          gap: 8px;
+        " onmouseover="this.style.background='#7b79c4'" onmouseout="this.style.background='#8e8cd8'">
+          💾 Download .tex
+        </button>
+
+        
+        
+        <button class="close-latex-btn2" style="
+          padding: 10px 24px;
+          background: #fafafa;
+          color: #1f1f1f;
+          border: 1px solid #e1dfdd;
+          border-radius: 6px;
+          font-size: 14px;
+          font-weight: 500;
+          cursor: pointer;
+          transition: all 0.15s ease;
+        " onmouseover="this.style.background='#f5f5f5'" onmouseout="this.style.background='#fafafa'">
+          Close
+        </button>
+      </div>
+    </div>
+  `;
+  
+  document.body.appendChild(modal);
+  
+  // Get textarea element
+  const textarea = document.getElementById('latex-content-textarea');
+  
+  // Add event listeners
+  modal.querySelector('.close-latex-btn').addEventListener('click', closeLatexModal);
+  modal.querySelector('.close-latex-btn2').addEventListener('click', closeLatexModal);
+  
+  modal.querySelector('.select-all-btn').addEventListener('click', function() {
+    textarea.select();
+    textarea.setSelectionRange(0, textarea.value.length);
+    
+    // Visual feedback
+    const btn = this;
+    const originalText = btn.innerHTML;
+    btn.innerHTML = '✅ Selected!';
+    
+    setTimeout(() => {
+      btn.innerHTML = originalText;
+    }, 1500);
+  });
+  
+  modal.querySelector('.copy-latex-btn').addEventListener('click', function() {
+    textarea.select();
+    textarea.setSelectionRange(0, textarea.value.length);
+    
+    // Copy using multiple methods for better compatibility
+    try {
+      // Method 1: Modern clipboard API
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(currentLatexContent).then(() => {
+          showCopySuccess(this);
+        }).catch(() => {
+          // Fallback to execCommand
+          document.execCommand('copy');
+          showCopySuccess(this);
+        });
+      } else {
+        // Method 2: Old school execCommand
+        document.execCommand('copy');
+        showCopySuccess(this);
+      }
+    } catch (err) {
+      alert('Failed to copy: ' + err.message);
+    }
+  });
+  
+  modal.querySelector('.download-latex-btn').addEventListener('click', function() {
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, -5);
+    const filename = `transmission_line_solution_${timestamp}.tex`;
+    
+    const blob = new Blob([currentLatexContent], { type: 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    a.click();
+    URL.revokeObjectURL(url);
+    
+    // Show success feedback
+    const btn = this;
+    const originalText = btn.innerHTML;
+    btn.innerHTML = '✅ Downloaded!';
+    
+    setTimeout(() => {
+      btn.innerHTML = originalText;
+    }, 2000);
+  });
+
+  
+  // Close on background click
+  modal.addEventListener('click', (e) => {
+    if (e.target === modal) {
+      closeLatexModal();
+    }
+  });
+  
+  // Close on ESC key
+  const escHandler = (e) => {
+    if (e.key === 'Escape') {
+      closeLatexModal();
+      document.removeEventListener('keydown', escHandler);
+    }
+  };
+  document.addEventListener('keydown', escHandler);
+  
+  // Focus textarea and position cursor at start
+  setTimeout(() => {
+    textarea.focus();
+    textarea.setSelectionRange(0, 0);
+  }, 100);
+}
+
+function showCopySuccess(btn) {
+  const originalText = btn.innerHTML;
+  btn.innerHTML = '✅ Copied!';
+  btn.style.background = '#107c10';
+  
+  setTimeout(() => {
+    btn.innerHTML = originalText;
+    btn.style.background = '#107c10';
+  }, 2000);
 }
 
 function closeLatexModal() {
-  const modal = document.getElementById('latex-display-modal');
-  if (modal) {
-    modal.style.animation = 'modalFadeOut 0.3s ease';
-    setTimeout(() => modal.remove(), 300);
-  }
-  currentLatexContent = null;
+  const modal = document.getElementById('latex-display-modal');
+  if (modal) {
+    modal.style.animation = 'modalFadeOut 0.3s ease';
+    setTimeout(() => modal.remove(), 300);
+  }
+  currentLatexContent = null;
 }
 
-function copyLatexToClipboard(event) {
-  if (!currentLatexContent) return;
-  
-  navigator.clipboard.writeText(currentLatexContent).then(() => {
-    // Show success feedback
-    const btn = event.target.closest('button');
-    const originalText = btn.innerHTML;
-    btn.innerHTML = '✅ Copied!';
-    btn.style.background = '#107c10';
-    
-    setTimeout(() => {
-      btn.innerHTML = originalText;
-      btn.style.background = '#0078d4';
-    }, 2000);
-  }).catch(err => {
-    alert('Failed to copy: ' + err);
-  });
+function copyLatexToClipboard() {
+  if (!currentLatexContent) return;
+  
+navigator.clipboard.writeText(currentLatexContent).then(() => {
+    // Show success feedback
+    const btn = event.target.closest('button'); // Now 'event' is defined
+    const originalText = btn.innerHTML;
+    btn.innerHTML = '✅ Copied!';
+    btn.style.background = '#107c10';
+    
+    setTimeout(() => {
+      btn.innerHTML = originalText;
+      btn.style.background = '#0078d4';
+    }, 2000);
+  }).catch(err => {
+    alert('Failed to copy: ' + err);
+  });
 }
 
-function downloadLatex(event) {
-  if (!currentLatexContent) return;
-  
-  const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, -5);
-  const filename = `transmission_line_solution_${timestamp}.tex`;
-  
-  const blob = new Blob([currentLatexContent], { type: 'text/plain' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = filename;
-  a.click();
-  URL.revokeObjectURL(url);
-  
-  // Show success feedback
-  const btn = event.target.closest('button');
-  const originalText = btn.innerHTML;
-  btn.innerHTML = '✅ Downloaded!';
-  
-  setTimeout(() => {
-    btn.innerHTML = originalText;
-  }, 2000);
-}
+
 // ===== Initialize =====
 redraw();
 </script>
