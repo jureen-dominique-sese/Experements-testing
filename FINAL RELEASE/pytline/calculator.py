@@ -10,7 +10,7 @@ from datetime import datetime
 from . import constants
 from .core import compute_gmr, compute_gmd, geometric_mean, distance
 
-class TransmissionLineCalculator:
+class pytline_calc:
     """Manages the state and calculations for the transmission line."""
     
     def __init__(self):
