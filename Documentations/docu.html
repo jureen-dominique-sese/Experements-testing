@@ -1,0 +1,510 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Transmission Line Calculator Docs</title>
+    <style>
+        /* --- General Setup --- */
+        :root {
+            --bg: #f7f9fc;
+            --text: #333;
+            --sidebar-bg: #ffffff;
+            --sidebar-text: #2c3e50;
+            --sidebar-active: #0078d4;
+            --content-bg: #ffffff;
+            --border: #e1dfdd;
+            --code-bg: #2d2d2d;
+            --code-text: #f1f1f1;
+            --header: #004a80;
+        }
+        
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        html {
+            scroll-behavior: smooth;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            line-height: 1.6;
+            background-color: var(--bg);
+            color: var(--text);
+            display: flex;
+        }
+
+        /* --- Sidebar Navigation --- */
+        .sidebar {
+            width: 280px;
+            height: 100vh;
+            position: fixed;
+            top: 0;
+            left: 0;
+            background-color: var(--sidebar-bg);
+            border-right: 1px solid var(--border);
+            padding: 24px;
+            overflow-y: auto;
+        }
+
+        .sidebar-header {
+            font-size: 20px;
+            font-weight: 700;
+            color: var(--header);
+            margin-bottom: 24px;
+        }
+        
+        .sidebar-nav ul {
+            list-style: none;
+        }
+
+        .sidebar-nav li {
+            margin-bottom: 8px;
+        }
+
+        .sidebar-nav a {
+            text-decoration: none;
+            color: var(--sidebar-text);
+            font-size: 14px;
+            font-weight: 500;
+            display: block;
+            padding: 8px 12px;
+            border-radius: 5px;
+            transition: all 0.2s ease;
+        }
+
+        .sidebar-nav a:hover {
+            background-color: #f4f4f4;
+        }
+
+        .sidebar-nav .active a {
+            background-color: var(--sidebar-active);
+            color: white;
+            font-weight: 600;
+        }
+        
+        .sidebar-nav .nav-h2 {
+            padding-left: 20px;
+            font-size: 13px;
+        }
+        
+        .sidebar-nav .nav-h3 {
+            padding-left: 35px;
+            font-size: 12px;
+            font-weight: 400;
+            color: #555;
+        }
+
+        /* --- Main Content Area --- */
+        .content {
+            margin-left: 280px;
+            flex: 1;
+            padding: 40px;
+            background-color: var(--bg);
+        }
+
+        .content-wrapper {
+            max-width: 900px;
+            margin: 0 auto;
+            background-color: var(--content-bg);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.05);
+        }
+        
+        .content section {
+            padding: 32px 40px;
+            border-bottom: 1px solid var(--border);
+        }
+        
+        .content section:last-child {
+            border-bottom: none;
+        }
+
+        h1, h2, h3, h4 {
+            color: var(--header);
+            margin-bottom: 16px;
+            padding-bottom: 8px;
+            border-bottom: 1px solid #eee;
+        }
+
+        h1 {
+            font-size: 32px;
+            font-weight: 800;
+        }
+
+        h2 {
+            font-size: 24px;
+            font-weight: 700;
+            margin-top: 24px;
+        }
+
+        h3 {
+            font-size: 20px;
+            font-weight: 600;
+            margin-top: 20px;
+            border-bottom: none;
+        }
+        
+        h4 {
+            font-size: 16px;
+            font-weight: 600;
+            color: #333;
+            margin-top: 16px;
+            border-bottom: none;
+        }
+
+        p {
+            margin-bottom: 16px;
+            font-size: 15px;
+        }
+
+        ul, ol {
+            margin-bottom: 16px;
+            padding-left: 20px;
+        }
+        
+        li {
+            margin-bottom: 8px;
+        }
+
+        code {
+            font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+            font-size: 0.9em;
+            background-color: #f0f0f0;
+            padding: 3px 5px;
+            border-radius: 4px;
+            color: #c7254e;
+        }
+
+        pre {
+            background-color: var(--code-bg);
+            color: var(--code-text);
+            padding: 16px;
+            border-radius: 6px;
+            overflow-x: auto;
+            margin-bottom: 16px;
+        }
+        
+        pre code {
+            background-color: transparent;
+            color: inherit;
+            padding: 0;
+        }
+        
+        .highlight {
+            padding: 12px;
+            background: #fffbe6;
+            border: 1px solid #ffe58f;
+            border-radius: 5px;
+            margin-bottom: 16px;
+        }
+        
+        .highlight strong {
+            color: #d46b08;
+        }
+        
+        .math-formula {
+            display: block;
+            margin: 20px auto;
+            max-width: 100%;
+            height: auto;
+            background: #f9f9f9;
+            padding: 10px;
+            border-radius: 5px;
+        }
+
+    </style>
+</head>
+<body>
+    
+    <aside class="sidebar">
+        <div class="sidebar-header">
+            GMRGMDTEST.py Docs
+        </div>
+        <nav class="sidebar-nav">
+            <ul>
+                <li><a href="#overview">Overview</a></li>
+                <li><a href="#user-guide">User Guide</a>
+                    <ul>
+                        <li class="nav-h2"><a href="#guide-step1">Step 1: Setup Parameters</a></li>
+                        <li class="nav-h2"><a href="#guide-step2">Step 2: Place Conductors</a></li>
+                        <li class="nav-h2"><a href="#guide-step3">Step 3: Review Results</a></li>
+                        <li class="nav-h2"><a href="#guide-step4">Step 4: Export Solution</a></li>
+                    </ul>
+                </li>
+                <li><a href="#api-reference">API Reference</a>
+                    <ul>
+                        <li class="nav-h2"><a href="#api-backend">Python Backend</a></li>
+                        <li class="nav-h3"><a href="#api-backend-class">GMDGMRApp</a></li>
+                        <li class="nav-h3"><a href="#api-backend-methods">Backend Methods</a></li>
+                        <li class="nav-h2"><a href="#api-frontend">JavaScript Frontend</a></li>
+                        <li class="nav-h3"><a href="#api-frontend-state">Global State</a></li>
+                        <li class="nav-h3"><a href="#api-frontend-events">Core Events</a></li>
+                        <li class="nav-h3"><a href="#api-frontend-drawing">Drawing Loop</a></li>
+                    </ul>
+                </li>
+                <li><a href="#math-hub">Mathematical Hub</a>
+                    <ul>
+                        <li class="nav-h2"><a href="#math-gmr">GMR / Self GMD</a></li>
+                        <li class="nav-h2"><a href="#math-gmd">GMD / Mutual GMD</a></li>
+                        <li class="nav-h2"><a href="#math-rlc">Line Parameters (R, L, C)</a></li>
+                    </ul>
+                </li>
+            </ul>
+        </nav>
+    </aside>
+
+    <main class="content">
+        <div class="content-wrapper">
+
+            <section id="overview">
+                <h1>Overview</h1>
+                <p>
+                    The <strong>Transmission Line Parameter Calculator</strong> is a cross-platform desktop application designed for calculating the fundamental parameters of overhead transmission lines. It provides a visual, interactive canvas for placing conductors and instantly computes Geometric Mean Radius (GMR), Geometric Mean Distance (GMD), and the R, L, and C parameters of the line.
+                </p>
+                <p>
+                    It is built as a single Python file (`GMRGMDTEST.py`) that leverages `pywebview` to create a native application window using an HTML/CSS/JavaScript frontend.
+                </p>
+                
+                <h3>Core Technologies</h3>
+                <ul>
+                    <li><strong>Python 3:</strong> Handles all backend state management and mathematical calculations.</li>
+                    <li><strong><code>pywebview</code>:</strong> A lightweight library that creates a native GUI window to render the web-based frontend and provides a two-way bridge between Python and JavaScript.</li>
+                    <li><strong><code>numpy</code>:</strong> Used for efficient numerical operations, particularly distance calculations.</li>
+                    <li><strong>HTML5 Canvas:</strong> Powers the interactive 2D grid for visual conductor placement.</li>
+                    <li><strong>JavaScript (ES6+):</strong> Manages the entire user interface, drawing loop, event handling, and communication with the Python backend.</li>
+                    <li><strong><code>google.generativeai</code>:</strong> Integrated to provide AI-powered generation of detailed LaTeX solution documents.</li>
+                </ul>
+            </section>
+
+            <section id="user-guide">
+                <h1>User Guide</h1>
+                <p>The application interface is divided into three main panels, plus a title bar. This guide explains the workflow from left to right.</p>
+
+                <h2 id="guide-step1">Step 1: Setup Parameters (Left Panel)</h2>
+                <p>The <strong>Left Panel</strong> is where you define all the physical properties of your transmission line *before* you start placing conductors.</p>
+                
+                <h3>Active Bundle</h3>
+                <p>Select which phase (Bundle A, B, or C) you are currently adding conductors for. Clicking a bundle button makes it active for the center canvas.</p>
+                
+                <h3>Geometry Settings</h3>
+                <ul>
+                    <li><strong>Distance Units:</strong> Select the unit (m, ft, inch, etc.) you will use for all canvas inputs. The backend will automatically convert all values to meters for calculation.</li>
+                    <li><strong>Radius A/B/C (in Units):</strong> Enter the <em>physical radius</em> (r) of a single conductor for each bundle, in your selected units.</li>
+                    <li><strong>Apply Radii:</strong> Click this to send the radii to the backend. The backend will then calculate the single-conductor GMR (r') using the formula $r' = r \times 0.7788$.</li>
+                </ul>
+                
+                <h3>Line Parameters</h3>
+                <ul>
+                    <li><strong>Material:</strong> Select the conductor material (e.g., Copper, ACSR) to determine its resistivity ($\rho$).</li>
+                    <li><strong>Line Length (km):</strong> Enter the total length of the transmission line in kilometers.</li>
+                    <li><strong>Conductor Radius (m):</strong> Enter the *overall* physical radius in **meters**. This is the primary value used for Resistance and Capacitance calculations.</li>
+                    <li><strong>Frequency (Hz):</strong> Enter the system's power frequency (e.g., 60 or 50).</li>
+                </ul>
+                
+                <div class="highlight">
+                    <strong>Important:</strong> Clicking <strong>"Calculate Parameters"</strong> will update all line parameters AND automatically sync the "Radius A/B/C" boxes above.
+                </div>
+
+                <h2 id="guide-step2">Step 2: Place Conductors (Center Panel)</h2>
+                <p>The <strong>Center Panel</strong> is your interactive workspace. Once you've selected an "Active Bundle" (e.g., Bundle A), you can place its conductors here.</p>
+                
+                <h3>Controls</h3>
+                <ul>
+                    <li><strong>Click:</strong> Left-click on the grid to place a conductor for the active bundle.</li>
+                    <li><strong>Hold SHIFT + Click:</strong> Constrains your placement to a perfect 90-degree (horizontal or vertical) line from the `lastPlacedPoint`.</li>
+                    <li><strong>Press TAB:</strong> After placing at least one point, press `TAB` to open a dialog. Here, you can place the next point by precisely entering a <strong>Length</strong> and <strong>Angle</strong> relative to the last point.</li>
+                    <li><strong>Press ESC:</strong> Clears the `lastPlacedPoint` anchor, allowing you to start a new, un-connected line or bundle.</li>
+                </ul>
+                
+                <h3>Visual Feedback</h3>
+                <ul>
+                    <li><strong>Coordinate Display:</strong> The black box in the bottom-left shows your mouse's real-time (x, y) coordinates.</li>
+                    <li><strong>Preview Line:</strong> A dashed line shows you the distance and angle from your last-placed point to your cursor.</li>
+                    <li><strong>Snap Halo:</strong> A yellow halo will appear when your cursor is near an existing point, allowing you to "snap" to it for perfect alignment.</li>
+                </ul>
+
+                <h2 id="guide-step3">Step 3: Review Results (Right Panel)</h2>
+                <p>The <strong>Right Panel</strong> automatically updates *every time* you add a point or change a parameter. It displays all calculation results in real-time.</p>
+                <ul>
+                    <li><strong>GMR:</strong> Shows the calculated GMR ($D_s$) for each bundle that has at least one conductor.</li>
+                    <li><strong>GMD:</strong> Shows the calculated GMD ($D_{eq}$) for each pair of bundles (e.g., A-B, B-C, A-C).</li>
+                    <li><strong>Resistance (R):</strong> Shows R per km and Total R.</li>
+                    <li><strong>Inductance (L):</strong> Shows L per km, Total L, and Inductive Reactance ($X_L$).</li>
+                    <li><strong>Capacitance (C):</strong> Shows C per km, Total C, and Capacitive Reactance ($X_C$).</li>
+                </ul>
+                
+                <h2 id="guide-step4">Step 4: Export Solution (Left Panel)</h2>
+                <p>At the bottom of the Left Panel, you can generate a formal report.</p>
+                <ol>
+                    <li>Enter your Google Gemini API key into the "Gemini API Key" field.</li>
+                    <li>Click <strong>"Generate LaTeX Solution"</strong>. A loading modal will appear.</li>
+                    <li>After a few seconds, a new modal will display the complete, generated LaTeX code for your report.</li>
+                    <li>From this modal, you can:
+                        <ul>
+                            <li><strong>Copy to Clipboard:</strong> Copy the raw LaTeX code.</li>
+                            <li><strong>Download .tex:</strong> Save the report as a `.tex` file.</li>
+                            <li><strong>Export as PDF:</strong> This is the recommended option. It will send the LaTeX code to the backend, which will use a local `pdflatex` compiler to generate a PDF. A "Save As..." dialog will then appear, allowing you to save the final PDF report.</li>
+                        </ul>
+                    </li>
+                </ol>
+                <div class="highlight">
+                    <strong>Prerequisite:</strong> The "Export as PDF" button requires you to have a LaTeX distribution (like **TeX Live**, **MiKTeX**, or **MacTeX**) installed on your system, with `pdflatex` accessible in your system's PATH.
+                </div>
+            </section>
+            
+            <section id="api-reference">
+                <h1>API Reference</h1>
+                <p>The application runs on a two-way API bridge provided by `pywebview`. JavaScript calls Python functions, and Python returns data.</p>
+                
+                <h2 id="api-backend">Python Backend API</h2>
+                <p>The backend logic is encapsulated in the `GMDGMRApp` class in `GMRGMDTEST.py`. An instance of this class is exposed to JavaScript as `pywebview.api`.</p>
+                
+                <h3 id="api-backend-class">Class: GMDGMRApp</h3>
+                <p>Manages the entire application state and performs all calculations.</p>
+                
+                <h4 id="api-backend-methods">Backend Methods (Called from JavaScript)</h4>
+                
+                <code>set_unit(u: str) -> str</code>
+                <p>Sets the active unit for canvas inputs. Called by the "Distance Units" dropdown.</p>
+
+                <code>set_gmr(bundle: str, val: float) -> str</code>
+                <p>Takes the <strong>physical radius</strong> <code>val</code> (in current units), converts it to meters, calculates $r' = \text{val_meters} \times 0.7788$, and stores it in `self.r_self[bundle]`.</p>
+                
+                <code>set_line_params(material: str, length: float, radius: float, freq: float) -> str</code>
+                <p>Updates the core line parameters. <code>radius</code> must be in **meters**. This function also automatically updates all `self.r_self` values based on this new master radius.</p>
+                
+                <code>add_point(x: float, y: float, bundle: str) -> str</code>
+                <p>Adds a new conductor. Takes <code>x</code> and <code>y</code> coordinates (in current units), converts them to **meters**, and appends the `(x_m, y_m)` tuple to `self.bundles[bundle]`.</p>
+                
+                <code>clear_bundle(bundle: str) -> str</code>
+                <p>Clears the coordinate list for the specified bundle.</p>
+                
+                <code>clear_all() -> str</code>
+                <p>Clears coordinate lists for all bundles.</p>
+                
+                <code>compute_results() -> dict</code>
+                <p>The main calculation engine. It uses the current state (bundles, radii, etc.) to compute all GMR, GMD, and RLC values and returns them as a JSON-serializable dictionary.</p>
+                
+                <code>export_latex_solution(api_key: str) -> str</code>
+                <p>Builds a detailed prompt containing all user inputs and calculation results, sends it to the Gemini API, and returns the generated LaTeX string.</p>
+                
+                <code>generate_pdf_from_latex(latex_content: str) -> dict</code>
+                <p>Receives a string of LaTeX code. It writes this to a temporary `.tex` file, runs the `pdflatex` command-line tool, and prompts the user to save the resulting PDF.</p>
+
+                <h2 id="api-frontend">JavaScript Frontend API</h2>
+                <p>The frontend JavaScript acts as the "controller" for the UI. It captures user events, calls the Python API, and then displays the results.</p>
+                
+                <h3 id="api-frontend-state">Global State</h3>
+                <ul>
+                    <li><code>bundles = {A: [], B: [], C: []}</code>: A JavaScript *mirror* of the Python `self.bundles`. This is used for redrawing the canvas instantly without needing to ask Python for the data 60 times a second.</li>
+                    <li><code>activeBundle = 'A'</code>: The currently selected bundle.</li>
+                    <li><code>lastPlacedPoint = null</code>: The *canvas pixel* `{x, y}` coordinate of the last click. Used as an anchor for preview lines and TAB-based placement.</li>
+                    <li><code>shiftKeyPressed = false</code>: Boolean flag set by key listeners.</li>
+                </ul>
+
+                <h3 id="api-frontend-events">Core Event Listeners</h3>
+                
+                <code>canvas.addEventListener('mousemove', ...)</code>
+                <p>Fires constantly as the mouse moves. This function is responsible for:</p>
+                <ol>
+                    <li>Updating the (x, y) coordinate display.</li>
+                    <li>Finding the nearest snap point via `findSnapPoint()`.</li>
+                    <li>Calling `redraw()` to update the preview line and snap halo in real-time.</li>
+                </ol>
+
+                <code>canvas.addEventListener('click', ...)</code>
+                <p>The primary action for placing conductors. It will:</p>
+                <ol>
+                    <li>Determine the final (x, y) coordinates (using snap, shift, or free-click).</li>
+                    <li>Call <code>await pywebview.api.add_point(x, y, activeBundle)</code> to update the backend.</li>
+                    <li>Update the local <code>bundles</code> mirror.</li>
+                    <li>Set <code>lastPlacedPoint</code> for the next preview line.</li>
+                    <li>Call <code>await updateResults()</code> to refresh the right-hand results panel.</li>
+                </ol>
+                
+                <code>window.addEventListener('keydown', ...)</code>
+                <p>Listens for global key presses to handle <code>Shift</code> (sets flag), <code>Tab</code> (calls <code>openLengthInputDialog()</code>), and <code>Escape</code> (clears <code>lastPlacedPoint</code>).</p>
+
+                <h3 id="api-frontend-drawing">Drawing Loop</h3>
+                
+                <code>redraw()</code>
+                <p>The master drawing function called on every mouse move and click. It executes in a specific order to ensure correct layering:</p>
+                <ol>
+                    <li><code>ctx.clearRect()</code>: Wipes the entire canvas.</li>
+                    <li><code>drawGrid()</code>: Draws the background grid and axes.</li>
+                    <li><code>drawBundleCircle()</code> / <code>drawBundleConnections()</code>: Draws the visual lines *within* each bundle.</li>
+                    <li><code>drawPoints()</code>: Draws the conductor points and their labels (e.g., "A1", "A2").</li>
+                    <li><code>drawSnapIndicator()</code>: Draws the yellow snap halo if `snapPoint` is active.</li>
+                    <li><code>drawPreviewLine()</code>: Draws the dashed preview line from `lastPlacedPoint` to the cursor.</li>
+                </ol>
+                
+                <h3>Panel Resizing</h3>
+                <p>The resizable panels are controlled by JavaScript. It listens for <code>mousedown</code> on a <code>.resizer</code> element. On <code>mousemove</code>, it calculates the mouse's `e.clientX` position and dynamically updates the <code>style.width</code> of the left and right panels, enforcing minimum widths. On <code>mouseup</code>, the resizing stops.</p>
+
+            </section>
+            
+            <section id="math-hub">
+                <h1>Mathematical Hub</h1>
+                <p>This section details the core formulas used by the `GMRGMDTEST.py` backend to perform the calculations.</p>
+                
+                <h2 id="math-gmr">GMR / Self GMD ($D_s$)</h2>
+                <p>The <strong>Geometric Mean Radius (GMR)</strong>, also known as Self GMD, represents the equivalent radius of a conductor or bundle. It is a hypothetical radius that accounts for the conductor's internal magnetic flux.</p>
+                
+                <h3>Single Solid Conductor</h3>
+                <p>For a single, solid cylindrical conductor, the GMR is a fixed fraction of its physical radius (r):</p>
+                <img class="math-formula" src="https://latex.codecogs.com/svg.latex?D_s = r' = r \times e^{-1/4} \approx r \times 0.7788" alt="GMR of single conductor">
+                
+                <h3>Bundled Conductors (n > 1)</h3>
+                <p>For a bundle of <i>n</i> conductors, the GMR is the $n^2$-th root of the product of $n^2$ distances. These distances are the $n$ GMRs of the individual conductors (r') and the $n(n-1)$ distances between all pairs of conductors (counted twice).</p>
+                <p>The general formula implemented in the code is:</p>
+                <img class="math-formula" src="https://latex.codecogs.com/svg.latex?D_s = \sqrt[n^2]{\left( \prod_{i=1}^{n} r'_i \right) \cdot \left( \prod_{i=1}^{n} \prod_{j=1, i \ne j}^{n} D_{ij} \right)}" alt="General GMR formula">
+                <p>Assuming all conductors have the same $r'$, this simplifies to the formula used in the code:</p>
+                <img class="math-formula" src="https://latex.codecogs.com/svg.latex?D_s = \sqrt[n^2]{(r')^n \times (D_{12}D_{13}...D_{n-1,n})^2}" alt="Simplified GMR formula">
+                
+                <h4>Example (n=2 conductors):</h4>
+                <img class="math-formula" src="https://latex.codecogs.com/svg.latex?D_s = \sqrt[4]{(r')^2 \times (D_{12})^2} = \sqrt{r' \times D_{12}}" alt="GMR for n=2">
+
+                <h4>Example (n=3 conductors, e.g., triangle):</h4>
+                <img class="math-formula" src="https://latex.codecogs.com/svg.latex?D_s = \sqrt[9]{(r')^3 \times (D_{12} \cdot D_{13} \cdot D_{23})^2} = \sqrt[3]{r' \cdot (D_{12}D_{13}D_{23})^{2/3}}" alt="GMR for n=3">
+                
+                <h2 id="math-gmd">GMD / Mutual GMD ($D_{eq}$)</h2>
+                <p>The <strong>Geometric Mean Distance (GMD)</strong>, or Mutual GMD, represents the equivalent distance between two separate phase bundles (e.g., between Phase A and Phase B).</p>
+                <p>It is the geometric mean of all possible distances between the conductors of one bundle and the conductors of the other. If Bundle A has <i>m</i> conductors and Bundle B has <i>n</i> conductors, there are $m \times n$ total distances.</p>
+                <img class="math-formula" src="https://latex.codecogs.com/svg.latex?D_{AB} = \sqrt[mn]{\prod_{i=1}^{m} \prod_{j=1}^{n} D_{a_i b_j}}" alt="General GMD formula">
+                
+                <h4>Example (Phase A has 2 conductors, Phase B has 2):</h4>
+                <p>There are $2 \times 2 = 4$ distances to calculate: $D_{a1-b1}, D_{a1-b2}, D_{a2-b1}, D_{a2-b2}$.</p>
+                <img class="math-formula" src="https://latex.codecogs.com/svg.latex?D_{AB} = \sqrt[4]{D_{a1b1} \cdot D_{a1b2} \cdot D_{a2b1} \cdot D_{a2b2}}" alt="GMD for m=2, n=2">
+                <p>For a 3-phase system, this is calculated for $D_{AB}$, $D_{BC}$, and $D_{AC}$. The equivalent GMD for the whole system is the geometric mean of these three values:</p>
+                <img class="math-formula" src="https://latex.codecogs.com/svg.latex?D_{eq} = \sqrt[3]{D_{AB} \cdot D_{BC} \cdot D_{AC}}" alt="Equivalent GMD">
+                
+                <h2 id="math-rlc">Line Parameters (R, L, C)</h2>
+                <p>Once $D_s$ (GMR) and $D_{eq}$ (GMD) are known, the line parameters are calculated.</p>
+                
+                <h3>Resistance (R)</h3>
+                <p>Resistance is calculated based on material resistivity ($\rho$), length ($L_{km}$), cross-sectional area ($A$), and the number of conductors in the bundle ($N$).</p>
+                <img class="math-formula" src="https://latex.codecogs.com/svg.latex?R_{\text{per\_km}} = \frac{\rho \times 1000}{A \times N_{\text{bundle}}} \; (\Omega / \text{km})" alt="Resistance formula">
+                <p>Where $A = \pi \times r^2$ and $r$ is the physical conductor radius in meters.</p>
+                
+                <h3>Inductance (L)</h3>
+                <p>Inductance depends on the ratio of GMD to GMR.</p>
+                <img class="math-formula" src="https://latex.codecogs.com/svg.latex?L_{\text{per\_km}} = 2 \times 10^{-7} \ln\left(\frac{D_{eq}}{D_s}\right) \times 1000 \; (\text{H} / \text{km})" alt="Inductance formula">
+                <p>Total Inductive Reactance is then:</p>
+                <img class="math-formula" src="https://latex.codecogs.com/svg.latex?X_L = 2 \pi f (L_{\text{per\_km}} \times L_{\text{km}}) \; (\Omega)" alt="Inductive Reactance formula">
+                
+                <h3>Capacitance (C)</h3>
+                <p>Capacitance is similar to inductance, but it uses the <strong>equivalent bundle radius ($r_b$)</strong> instead of GMR ($D_s$). The equivalent radius is calculated using the same GMR formula, but with the physical radius $r$ instead of $r'$.</p>
+                <img class="math-formula" src="https://latex.codecogs.com/svg.latex?C_{\text{per\_km}} = \frac{2 \pi \epsilon_0}{\ln\left(\frac{D_{eq}}{r_b}\right)} \times 1000 \; (\text{F} / \text{km})" alt="Capacitance formula">
+                <p>Where $\epsilon_0 = 8.854 \times 10^{-12} \text{ F/m}$. Total Capacitive Reactance is:</p>
+                <img class="math-formula" src="https://latex.codecogs.com/svg.latex?X_C = \frac{1}{2 \pi f (C_{\text{per\_km}} \times L_{\text{km}})} \; (\Omega)" alt="Capacitive Reactance formula">
+            </section>
+        </div>
+    </main>
+
+</body>
+</html>
