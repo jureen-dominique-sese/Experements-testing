@@ -3,6 +3,12 @@ import webview
 from itertools import combinations, product
 import google.generativeai as genai
 import json
+import tempfile
+import subprocess
+import os
+import shutil
+from tkinter import Tk, filedialog
+import datetime
 
 GEMINI_API_KEY = "AIzaSyDgJcTZHERGt6URVGdTwd8twOCaumUtX4g"
 
@@ -125,6 +131,8 @@ def geometric_mean(values):
     Returns:
         float: The geometric mean of the values.
     """
+    if not values:
+        return 1.0  # Return 1 for empty product to avoid errors
     return np.prod(values) ** (1 / len(values))
 
 def compute_gmr(bundle_points, r_self):
@@ -150,7 +158,18 @@ def compute_gmr(bundle_points, r_self):
     # (with each distance counted twice, D_12 and D_21).
     # This simplified version uses each unique distance twice.
     num_terms = n**2
-    all_terms_product = (r_self**n) * (np.prod(distances)**2)
+    
+    prod_distances = np.prod(distances)
+    if prod_distances == 0:
+        # Handle case where points are co-located
+        return r_self 
+        
+    all_terms_product = (r_self**n) * (prod_distances**2)
+    
+    if all_terms_product <= 0:
+         # Avoid log(0) or root of negative number
+        return r_self
+
     gmr = all_terms_product**(1 / num_terms)
     return gmr
 
@@ -167,13 +186,14 @@ def compute_gmd(bundle1, bundle2):
         float: The calculated GMD between the two bundles in meters.
     """
     distances = [distance(p1, p2) for p1, p2 in product(bundle1, bundle2)]
+    if not distances:
+        return 1.0
     return geometric_mean(distances)
 
 # ---------- App Logic ----------
 class GMDGMRApp:
     """Manages the state and calculations for the transmission line calculator."""
     def __init__(self):
-        """Initializes the GMDGMRApp with default values."""
         """Initializes the GMDGMRApp with default values."""
         self.bundles = {"A": [], "B": [], "C": []}
         # Initialize with 0.7788 * default radius for solid conductors
@@ -187,9 +207,6 @@ class GMDGMRApp:
         self.length = 100.0  # km
         self.conductor_radius = 0.01  # m
         self.freq = 60.0  # Hz
-        
-        # History tracking
-        self.calc_history = []
 
     def set_unit(self, u):
         """Sets the default unit for all incoming spatial measurements.
@@ -223,11 +240,12 @@ class GMDGMRApp:
 
         Args:
             bundle (str): The bundle label ('A', 'B', or 'C').
-            val (float): The numerical value of the self GMR in the current units.
+            val (float): The numerical value of the *radius* in the current units.
 
         Returns:
             str: A confirmation message.
         """
+        # The user inputs the *radius*, and we calculate r'
         gmr_value = float(val) * 0.7788 * UNIT_CONVERSIONS[self.unit]
         self.r_self[bundle] = gmr_value
         return f"Set GMR for {bundle} = {val} {self.unit} (r' = {gmr_value:.6f} m)"
@@ -248,6 +266,11 @@ class GMDGMRApp:
         self.length = float(length)
         self.conductor_radius = float(radius)
         self.freq = float(freq)
+        
+        # Also update the GMR values based on the new radius
+        for bundle in self.r_self:
+            self.r_self[bundle] = self.conductor_radius * 0.7788
+            
         return "Parameters updated"
 
     def add_point(self, x, y, bundle):
@@ -288,7 +311,6 @@ class GMDGMRApp:
 
         Calculates GMR for each bundle, GMD between each pair of bundles,
         and the R, L, C line parameters based on the stored configuration.
-        Stores the calculation in history with timestamp.
 
         Returns:
             dict: A dictionary containing the results, structured as:
@@ -301,22 +323,7 @@ class GMDGMRApp:
                     "C_total": ... (µF),
                     "XL": ...,
                     "XC": ...
-                },
-                "history": [
-                    {
-                        "timestamp": "2025-10-24 14:30:00",
-                        "config": {
-                            "unit": "m",
-                            "material": "ACSR",
-                            "length": 100,
-                            "radius": 0.0,
-                            "frequency": 60,
-                            "bundles": {...}
-                        },
-                        "results": {...}
-                    },
-                    ...
-                ]
+                }
             }
         """
         results = {"gmr": [], "gmd": [], "params": {}}
@@ -325,7 +332,8 @@ class GMDGMRApp:
         # GMR calculations
         for label, points in self.bundles.items():
             if points:
-                gmr_values[label] = compute_gmr(points, self.r_self[label])
+                r_prime_bundle = self.r_self[label]
+                gmr_values[label] = compute_gmr(points, r_prime_bundle)
                 results["gmr"].append({
                     "label": label,
                     "value": gmr_values[label],
@@ -348,31 +356,59 @@ class GMDGMRApp:
             # Resistance (Ω/km)
             rho = MATERIALS.get(self.material, 1.68e-8)
             area = np.pi * (self.conductor_radius ** 2)
-            n_conductors = max(len(self.bundles[b]) for b in self.bundles if self.bundles[b])
-            R_per_km = (rho * 1000) / (area * n_conductors) if n_conductors > 0 else 0
+            
+            # n_conductors is the number of conductors *per phase/bundle*
+            # We assume all bundles have the same number of conductors
+            n_conductors = 1
+            if gmr_values:
+                 first_bundle_label = list(gmr_values.keys())[0]
+                 n_conductors = len(self.bundles[first_bundle_label])
+            
+            if n_conductors == 0: n_conductors = 1 # Avoid division by zero
+            
+            R_per_km = (rho * 1000) / (area * n_conductors)
             R_total = R_per_km * self.length
             
+            L_per_km = 0
+            L_total = 0
+            C_per_km = 0
+            C_total = 0
+            avg_gmd = 1.0
+            avg_gmr = 1.0
+            r_bundle_equiv = self.conductor_radius
+
             # Inductance (H/km and H total)
-            if len(gmr_values) >= 2:
+            if len(gmr_values) >= 2: # Need at least 2 phases for GMD
                 avg_gmd = np.mean(list(gmd_values.values())) if gmd_values else 1.0
                 avg_gmr = np.mean(list(gmr_values.values()))
-                L_per_km = 2e-7 * np.log(avg_gmd / avg_gmr) * 1000  # H/km
-                L_total = L_per_km * self.length
-            else:
-                L_per_km = 0
-                L_total = 0
+                
+                if avg_gmd > 0 and avg_gmr > 0 and (avg_gmd / avg_gmr) > 0:
+                   L_per_km = 2e-7 * np.log(avg_gmd / avg_gmr) * 1000  # H/km
+                   L_total = L_per_km * self.length
             
             # Capacitance (F/km and F total)
             if len(gmr_values) >= 2:
                 # For capacitance, we use the actual conductor radius, not GMR.
-                # An equivalent radius for the bundle is needed.
-                # This is a simplification; a more precise method would involve potential coefficients.
-                r_bundle_equiv = (n_conductors * self.conductor_radius * (geometric_mean([distance(p1,p2) for p1,p2 in combinations(self.bundles[list(gmr_values.keys())[0]], 2)]) if n_conductors > 1 else 1)**(n_conductors-1))**(1/n_conductors) if n_conductors > 1 else self.conductor_radius
-                C_per_km = (2 * np.pi * 8.854e-12 * 1000) / np.log(avg_gmd / r_bundle_equiv) # F/km
-                C_total = C_per_km * self.length
-            else:
-                C_per_km = 0
-                C_total = 0
+                # An equivalent bundle radius (r_b) is needed.
+                
+                first_bundle_label = list(gmr_values.keys())[0]
+                bundle_points = self.bundles[first_bundle_label]
+                
+                if n_conductors > 1:
+                    bundle_distances = [distance(p1,p2) for p1,p2 in combinations(bundle_points, 2)]
+                    
+                    if bundle_distances:
+                        prod_distances_sq = (np.prod(bundle_distances))**2
+                        r_bundle_equiv = ( (self.conductor_radius**n) * prod_distances_sq )**(1/n**2)
+                    else:
+                        # This can happen if points are co-located
+                        r_bundle_equiv = self.conductor_radius
+                else:
+                    r_bundle_equiv = self.conductor_radius
+
+                if avg_gmd > 0 and r_bundle_equiv > 0 and (avg_gmd / r_bundle_equiv) > 0:
+                   C_per_km = (2 * np.pi * 8.854e-12 * 1000) / np.log(avg_gmd / r_bundle_equiv) # F/km
+                   C_total = C_per_km * self.length
             
             # Reactances
             omega = 2 * np.pi * self.freq
@@ -390,43 +426,8 @@ class GMDGMRApp:
                 "XC": XC
             }
         
-        # Add to history
-        from datetime import datetime
-        history_entry = {
-            "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-            "config": {
-                "unit": self.unit,
-                "material": self.material,
-                "length": self.length,
-                "radius": self.conductor_radius,
-                "frequency": self.freq,
-                "bundles": {k: [(x,y) for x,y in v] for k,v in self.bundles.items()},
-                "r_self": self.r_self.copy()
-            },
-            "results": results.copy()
-        }
-        self.calc_history.append(history_entry)
-        results["history"] = self.calc_history
-        
         return results
-
-    def get_history(self):
-        """Get the calculation history.
         
-        Returns:
-            list: List of history entries with timestamps, configurations, and results.
-        """
-        return self.calc_history
-        
-    def clear_history(self):
-        """Clear the calculation history.
-        
-        Returns:
-            str: Confirmation message.
-        """
-        self.calc_history = []
-        return "History cleared"
-
     def export_latex_solution(self, api_key=None):
         """Generates a detailed LaTeX solution document using Gemini API.
         
@@ -445,7 +446,7 @@ class GMDGMRApp:
             
             # Configure Gemini
             genai.configure(api_key=key)
-            model = genai.GenerativeModel('gemini-2.5-pro')
+            model = genai.GenerativeModel('gemini-1.5-flash') # Use 'gemini-1.5-flash'
             
             # Get current results
             results = self.compute_results()
@@ -455,96 +456,60 @@ class GMDGMRApp:
                 return "Error: No conductor data to export. Please add some points first."
             
             # Create detailed prompt for Gemini
-            prompt = f"""You are a specialized LaTeX document generator for high-precision transmission line electromagnetic analysis. Create a mathematically rigorous document with the following data:
+            prompt = f"""You are a LaTeX document generator for transmission line parameter calculations with expertise in coordinate rectification. Create a complete, professionally formatted LaTeX document with the following data:
 
-INPUT CONFIGURATION:
-Material Properties: {self.material}
-Line Parameters: Length={self.length}km, Conductor Radius={self.conductor_radius}m
-Operating Frequency: {self.freq}Hz
-Spatial Units: {self.unit}
+INPUT DATA:
+Material: {self.material}
+Line Length: {self.length} km
+Conductor Radius: {self.conductor_radius} m
+Frequency: {self.freq} Hz
+Units: {self.unit}
 
-Phase Bundle Coordinates (meters):
+Bundle Configuration (meters):
 {json.dumps({k: v for k, v in self.bundles.items() if v}, indent=2)}
 
-Geometric Mean Radii (meters):
+Self GMR (r') Values (meters):
 {json.dumps(self.r_self, indent=2)}
 
-Computational Results:
+Calculation Results:
 {json.dumps(results, indent=2)}
 
-DOCUMENT STRUCTURE:
-1. Title: "High-Precision Electromagnetic Analysis of Transmission Line Parameters"
+REQUIRED DOCUMENT SECTIONS:
+1. Title: "Transmission Line Parameter Calculation"
+2. Problem Statement
+3. Conductor Configuration Analysis
+   - Original coordinate plot using TikZ
+   - Coordinate accuracy analysis
+   - Rectified coordinates based on standard transmission line patterns
+4. Step-by-step Calculations
+   - GMR/GMD using original coordinates
+   - GMR/GMD using rectified coordinates (if significant discrepancies found)
+   - Analysis of differences between original and rectified values
+5. Derivation of RLC Parameters
+   - Calculations using original coordinates
+   - Calculations using rectified coordinates (if applicable)
+   - Impact analysis of coordinate rectification on final results
+6. Results Summary
+   - Comparative table showing original vs. rectified results
+   - Percentage differences and engineering significance
+   - Recommendations based on the analysis
 
-2. Mathematical Framework
-   - Complex electromagnetic field equations
-   - Carson's equations for earth return path
-   - Bundle conductor mathematical models
-   - Error propagation analysis
+COORDINATE RECTIFICATION GUIDELINES:
+- Analyze coordinate patterns for standard transmission line configurations
+- Check for small deviations (0.001-0.01m) from expected symmetrical patterns
+- Identify and correct potential human input errors
+- Consider standard spacing patterns in transmission line design
+- Document assumptions made during rectification
 
-3. Spatial Configuration Analysis
-   - High-precision TikZ plots (0.1mm grid resolution)
-   - Phase spacing optimization analysis
-   - Bundle geometry verification
-   - Symmetry deviation analysis
-   - Statistical error assessment
-
-4. Rigorous GMR/GMD Derivation
-   - Bundle reduction theorems
-   - Matrix formulation of geometric means
-   - Error bounds for GMR/GMD calculations
-   - Numerical stability analysis
-   - Condition number assessment
-
-5. Electromagnetic Parameter Computation
-   - Full Maxwell equation application
-   - Inductance matrix derivation
-   - Capacitance matrix computation
-   - Skin and proximity effect analysis
-   - Frequency-dependent corrections
-
-6. Numerical Analysis
-   - Convergence criteria
-   - Relative error bounds
-   - Condition number assessment
-   - Numerical stability verification
-   - Monte Carlo error estimation
-
-7. Results with Uncertainty Analysis
-   - Parameter confidence intervals
-   - Error propagation through calculations
-   - Sensitivity analysis
-   - Statistical significance testing
-
-MATHEMATICAL REQUIREMENTS:
-- Use exact geometric formulations
-- Include error bounds for all calculations
-- Show complete matrix derivations
-- Provide numerical stability analysis
-- Include confidence intervals
-
-PLOTTING REQUIREMENTS:
-- High-resolution TikZ plots (minimum 0.1mm grid)
-- Error ellipses for coordinate uncertainty
-- Phase-plane analysis plots
-- Log-scale GMD relationship plots
-- 3D surface plots for field distributions
-
-FORMATTING SPECIFICATIONS:
-- Document class: article with amsmath, physics, siunitx
-- Additional packages: tikz-3dplot, pgfplots, uncertainties
-- Font: Latin Modern Math for equations
-- A4 paper, 2.5cm margins
-- Header: "Advanced Electromagnetic Analysis - BCMSV Calculator 2025"
-- Equation numbering with cross-references
-- Full appendix with numerical methods
-- Bibliography with IEEE citations
-
-PRECISION REQUIREMENTS:
-- All numerical values to 6 significant figures
-- Error bounds for all measurements
-- Uncertainty propagation in all calculations
-- Statistical confidence intervals
-- Grid snapping analysis for spatial coordinates
+FORMATTING REQUIREMENTS:
+- Use article class with amsmath, geometry, booktabs, tikz, babel[english], fontspec, fancyhdr, hyperref
+- Set Inter as main font
+- Right header: "Generated by the BCMSV GMR/GMD Line Parameters Calculator Application, 2025-20256 from BSEE-4A"
+- A4 paper with 2.5cm top/bottom margins, 2cm left/right margins
+- Number all equations
+- Include side-by-side TikZ plots showing original vs. rectified coordinates
+- Use booktabs for professional comparison tables
+- Use color coding in plots to highlight rectified points
 
 Generate LaTeX code that can be directly compiled with pdflatex. Ensure the document clearly explains any rectification decisions and their impact on the final results."""
 
@@ -559,12 +524,22 @@ Generate LaTeX code that can be directly compiled with pdflatex. Ensure the docu
             elif "```tex" in latex_content:
                 latex_content = latex_content.split("```tex")[1].split("```")[0].strip()
             elif "```" in latex_content:
-                latex_content = latex_content.split("```")[1].split("```")[0].strip()
+                parts = latex_content.split("```")
+                if len(parts) > 1:
+                    latex_content = parts[1]
+                    # Remove potential language specifier like 'latex' or 'tex'
+                    if latex_content.startswith('latex'):
+                        latex_content = latex_content[5:].strip()
+                    elif latex_content.startswith('tex'):
+                        latex_content = latex_content[3:].strip()
+                else:
+                    latex_content = parts[0] # No code block found, use whole text
             
             return latex_content
             
         except Exception as e:
             return f"Error generating LaTeX: {str(e)}"
+
     def generate_pdf_from_latex(self, latex_content):
         """Generates a PDF from LaTeX content using pdflatex.
         
@@ -574,11 +549,6 @@ Generate LaTeX code that can be directly compiled with pdflatex. Ensure the docu
         Returns:
             dict: {'success': bool, 'path': str, 'error': str}
         """
-        import tempfile
-        import subprocess
-        import os
-        from tkinter import Tk, filedialog
-        
         try:
             # Create temporary directory for LaTeX compilation
             with tempfile.TemporaryDirectory() as tmpdir:
@@ -587,20 +557,30 @@ Generate LaTeX code that can be directly compiled with pdflatex. Ensure the docu
                 with open(tex_file, 'w', encoding='utf-8') as f:
                     f.write(latex_content)
                 
+                pdf_file = os.path.join(tmpdir, 'solution.pdf')
+                
+                # Try to find pdflatex
+                pdflatex_cmd = 'pdflatex'
+                if not shutil.which(pdflatex_cmd):
+                    return {
+                        'success': False,
+                        'error': 'pdflatex not found. Please install a LaTeX distribution (like TeX Live, MiKTeX, or MacTeX) and ensure it is in your system PATH.'
+                    }
+
                 # Compile LaTeX to PDF (run twice for proper references)
                 for _ in range(2):
                     result = subprocess.run(
-                        ['pdflatex', '-interaction=nonstopmode', '-output-directory', tmpdir, tex_file],
+                        [pdflatex_cmd, '-interaction=nonstopmode', '-output-directory', tmpdir, tex_file],
                         capture_output=True,
+                        text=True,
                         timeout=30
                     )
                 
-                pdf_file = os.path.join(tmpdir, 'solution.pdf')
-                
                 if not os.path.exists(pdf_file):
+                    log_snippet = (result.stdout or "")[-1000:] + (result.stderr or "")[-1000:]
                     return {
                         'success': False,
-                        'error': 'PDF compilation failed. Make sure pdflatex is installed.'
+                        'error': f"PDF compilation failed. Check LaTeX code for errors. Log snippet: {log_snippet}"
                     }
                 
                 # Open save dialog
@@ -608,7 +588,7 @@ Generate LaTeX code that can be directly compiled with pdflatex. Ensure the docu
                 root.withdraw()
                 root.attributes('-topmost', True)
                 
-                timestamp = __import__('datetime').datetime.now().strftime('%Y%m%d_%H%M%S')
+                timestamp = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
                 default_filename = f'transmission_line_solution_{timestamp}.pdf'
                 
                 save_path = filedialog.asksaveasfilename(
@@ -622,7 +602,6 @@ Generate LaTeX code that can be directly compiled with pdflatex. Ensure the docu
                 
                 if save_path:
                     # Copy PDF to selected location
-                    import shutil
                     shutil.copy2(pdf_file, save_path)
                     
                     return {
@@ -694,6 +673,24 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
+/* --- NEW: Resizer Styles --- */
+.resizer {
+  width: 5px;
+  background: var(--border);
+  cursor: col-resize;
+  transition: background 0.2s;
+  flex-shrink: 0;
+  z-index: 50;
+}
+.resizer:hover {
+  background: var(--accent);
+}
+/* Apply resizing cursor to body to prevent losing cursor style */
+body.resizing {
+  cursor: col-resize !important;
+  user-select: none !important;
+}
+
 /* Title Bar */
 .titlebar {
   background: var(--panel);
@@ -704,6 +701,7 @@ body {
   gap: 10px;
   box-shadow: var(--shadow-sm);
   z-index: 100;
+  flex-shrink: 0; /* --- ADDED --- */
 }
 
 .titlebar-icon {
@@ -734,6 +732,7 @@ body {
   display: flex;
   flex-direction: column;
   overflow-y: auto;
+  flex-shrink: 0; /* --- ADDED --- */
 }
 
 .sidebar-section {
@@ -912,6 +911,8 @@ body {
   display: flex;
   flex-direction: column;
   background: var(--panel-dark);
+  /* --- NEW: Ensure canvas can shrink --- */
+  min-width: 300px;
 }
 
 .canvas-toolbar {
@@ -956,6 +957,7 @@ body {
   justify-content: center;
   padding: 24px;
   position: relative;
+  overflow: hidden; /* --- ADDED --- */
 }
 
 canvas {
@@ -979,6 +981,7 @@ canvas {
   opacity: 0;
   transition: opacity 0.2s;
   box-shadow: var(--shadow-md);
+  z-index: 20; /* --- ADDED --- */
 }
 
 .canvas-legend {
@@ -990,6 +993,7 @@ canvas {
   border-radius: var(--radius-lg);
   padding: 14px;
   box-shadow: var(--shadow-md);
+  z-index: 20; /* --- ADDED --- */
 }
 
 .legend-title {
@@ -1027,71 +1031,7 @@ canvas {
   display: flex;
   flex-direction: column;
   overflow-y: auto;
-}
-
-/* History Panel */
-.history-section {
-  margin-top: auto;
-  border-top: 1px solid var(--border);
-}
-
-.history-header {
-  padding: 16px 20px;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  background: var(--panel-dark);
-}
-
-.history-title {
-  font-weight: 600;
-  color: var(--fg);
-}
-
-.history-clear-btn {
-  padding: 4px 8px;
-  font-size: 12px;
-  color: var(--fg-secondary);
-  background: none;
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  cursor: pointer;
-}
-
-.history-clear-btn:hover {
-  background: var(--bg);
-}
-
-.history-list {
-  padding: 12px 20px;
-  max-height: 300px;
-  overflow-y: auto;
-}
-
-.history-item {
-  padding: 12px;
-  margin-bottom: 8px;
-  background: var(--bg);
-  border-radius: var(--radius);
-  font-size: 13px;
-}
-
-.history-timestamp {
-  color: var(--fg-secondary);
-  font-size: 11px;
-  margin-bottom: 4px;
-}
-
-.history-config {
-  font-weight: 500;
-}
-
-.history-details {
-  margin-top: 8px;
-  padding-top: 8px;
-  border-top: 1px solid var(--border);
-  color: var(--fg-secondary);
-  font-size: 12px;
+  flex-shrink: 0; /* --- ADDED --- */
 }
 
 .results-header {
@@ -1103,11 +1043,13 @@ canvas {
   color: var(--fg-secondary);
   text-transform: uppercase;
   letter-spacing: 0.5px;
+  flex-shrink: 0; /* --- ADDED --- */
 }
 
 .results-content {
   padding: 20px;
   flex: 1;
+  overflow-y: auto; /* --- ADDED --- */
 }
 
 .result-card {
@@ -1191,11 +1133,23 @@ canvas {
   color: var(--accent);
   font-size: 14px;
 }
+
+/* --- NEW: Modal Animations --- */
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+@keyframes modalFadeIn {
+  from { opacity: 0; transform: scale(0.9); }
+  to { opacity: 1; transform: scale(1); }
+}
+@keyframes modalFadeOut {
+  from { opacity: 1; transform: scale(1); }
+  to { opacity: 0; transform: scale(0.9); }
+}
 </style>
 </head>
 <body>
 
-<!-- Title Bar -->
 <div class="titlebar">
   <svg class="titlebar-icon" fill="currentColor" viewBox="0 0 20 20">
     <path d="M13 7H7v6h6V7z"/>
@@ -1204,13 +1158,10 @@ canvas {
   <span class="titlebar-title">Transmission Line Parameter Calculator</span>
 </div>
 
-<!-- Main App Container -->
 <div class="app-container">
   
-  <!-- Left Sidebar -->
-  <div class="sidebar">
+  <div class="sidebar" id="leftPanel">
     
-    <!-- Bundle Selection -->
     <div class="sidebar-section">
       <div class="section-title">Active Bundle</div>
       <div class="bundle-selector">
@@ -1225,7 +1176,6 @@ canvas {
       </div>
     </div>
     
-    <!-- Units & GMR -->
     <div class="sidebar-section">
       <div class="section-title">Geometry Settings</div>
       
@@ -1242,27 +1192,26 @@ canvas {
       
       <div class="form-row">
         <div class="form-group">
-          <label class="form-label">GMR A</label>
+          <label class="form-label">Radius A (in Units)</label>
           <input id="gA" type="number" step="0.001" value="0.01" class="form-control">
         </div>
         <div class="form-group">
-          <label class="form-label">GMR B</label>
+          <label class="form-label">Radius B (in Units)</label>
           <input id="gB" type="number" step="0.001" value="0.01" class="form-control">
         </div>
         <div class="form-group">
-          <label class="form-label">GMR C</label>
+          <label class="form-label">Radius C (in Units)</label>
           <input id="gC" type="number" step="0.001" value="0.01" class="form-control">
         </div>
       </div>
 
       <div style="font-size: 11px; color: var(--fg-secondary); margin-bottom: 12px; font-style: italic;">
-         Note! GMR automatically calculated as 0.7788 × radius for solid conductors
+         Note! GMR (r') automatically calculated as 0.7788 × radius.
       </div>
       
-      <button class="btn btn-primary btn-sm btn-block" onclick="setGMRs()">Apply GMR Values</button>
+      <button class="btn btn-primary btn-sm btn-block" onclick="setGMRs()">Apply Radii</button>
     </div>
     
-    <!-- Line Parameters -->
     <div class="sidebar-section">
       <div class="section-title">Line Parameters</div>
       
@@ -1294,7 +1243,6 @@ canvas {
       <button class="btn btn-primary btn-block" onclick="updateLineParams()">Calculate Parameters</button>
     </div>
     
-    <!-- LaTeX Export -->
     <div class="sidebar-section">
       <div class="section-title">Export Solution</div>
       
@@ -1312,10 +1260,10 @@ canvas {
     
   </div>
   
-  <!-- Canvas Area -->
+  <div class="resizer" id="leftResizer"></div>
+  
   <div class="canvas-area">
     
-    <!-- Canvas Toolbar -->
     <div class="canvas-toolbar">
       <div class="toolbar-group">
         <span class="toolbar-label">Scale X:</span>
@@ -1326,11 +1274,10 @@ canvas {
       </div>
       
       <div style="margin-left: auto; font-size: 12px; color: var(--fg-secondary);">
-        Click on canvas to place conductors • Distance visualizations appear automatically
+        Click to place • SHIFT for 90° • TAB for length/angle • ESC to clear
       </div>
     </div>
     
-    <!-- Canvas -->
     <div class="canvas-wrapper">
       <canvas id="plane" width="1000" height="700"></canvas>
       <div class="coord-display" id="coordDisplay">x: 0.000, y: 0.000</div>
@@ -1354,8 +1301,9 @@ canvas {
     
   </div>
   
-  <!-- Results Panel -->
-  <div class="results-panel">
+  <div class="resizer" id="rightResizer"></div>
+  
+  <div class="results-panel" id="rightPanel">
     <div class="results-header">Calculation Results</div>
     <div class="results-content" id="results">
       <div class="empty-state">
@@ -1365,15 +1313,6 @@ canvas {
         </svg>
         <p class="empty-text">Click on the canvas to place conductor points and see calculations</p>
       </div>
-    </div>
-    
-    <!-- History Panel -->
-    <div class="history-section">
-      <div class="history-header">
-        <div class="history-title">Calculation History</div>
-        <button id="clearHistory" class="history-clear-btn">Clear History</button>
-      </div>
-      <div id="historyList" class="history-list"></div>
     </div>
   </div>
   
@@ -1386,10 +1325,6 @@ const colors = {A: '#d83b01', B: '#0078d4', C: '#107c10'};
 let bundles = {A: [], B: [], C: []};
 let activeBundle = 'A';
 let scaleX = 40, scaleY = 40;
-let zoomLevel = 1;
-let panOffset = {x: 0, y: 0};
-let isPanning = false;
-let lastMousePos = {x: 0, y: 0};
 const origin = {x: 80, y: canvas.height - 80};
 
 // ===== Snap & Preview System =====
@@ -1406,16 +1341,12 @@ let referencePoint = null; // Tracks if first point was from another bundle
 let inputDialog = null;
 
 window.addEventListener('keydown', (e) => {
-  if (e.key === 'Shift') shiftKeyPressed = true;
+  // --- NEW: Prevent key actions if typing in an input ---
+  if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') {
+    return;
+  }
   
-  // Secret combination Alt + P + J
-  if (e.altKey && e.key.toLowerCase() === 'p') {
-    // Start tracking for the 'j' key
-    window.pKeyPressed = true;
-  }
-  if (window.pKeyPressed && e.altKey && e.key.toLowerCase() === 'j') {
-    window.open('https://www.youtube.com/watch?v=xvFZjo5PgG0&pp=ygUJcmljayByb2xs0gcJCQYKAYcqIYzv', '_blank');
-  }
+  if (e.key === 'Shift') shiftKeyPressed = true;
   
   // TAB to open input dialog for direct length input
   if (e.key === 'Tab' && lastPlacedPoint) {
@@ -1443,7 +1374,6 @@ window.addEventListener('keydown', (e) => {
 
 window.addEventListener('keyup', (e) => {
   if (e.key === 'Shift') shiftKeyPressed = false;
-  if (e.key.toLowerCase() === 'p') window.pKeyPressed = false;
 });
 
 function openLengthInputDialog() {
@@ -1452,7 +1382,7 @@ function openLengthInputDialog() {
   // Create overlay
   const overlay = document.createElement('div');
   overlay.id = 'input-overlay';
-  overlay.style.cssText = `
+  overlay.style.cssText = \`
     position: fixed;
     top: 0;
     left: 0;
@@ -1463,26 +1393,26 @@ function openLengthInputDialog() {
     align-items: center;
     justify-content: center;
     z-index: 1000;
-  `;
+  \`;
   
   // Create dialog
   const dialog = document.createElement('div');
-  dialog.style.cssText = `
+  dialog.style.cssText = \`
     background: white;
     border-radius: 8px;
     padding: 24px;
     box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
     min-width: 300px;
     font-family: Inter, sans-serif;
-  `;
+  \`;
   
-  dialog.innerHTML = `
+  dialog.innerHTML = \`
     <div style="margin-bottom: 16px;">
       <h3 style="font-size: 16px; font-weight: 600; color: #1f1f1f; margin-bottom: 8px;">Enter Line Parameters</h3>
     </div>
     
     <div style="margin-bottom: 16px;">
-      <label style="display: block; font-size: 13px; font-weight: 500; color: #1f1f1f; margin-bottom: 6px;">Length</label>
+      <label style="display: block; font-size: 13px; font-weight: 500; color: #1f1f1f; margin-bottom: 6px;">Length (in \${document.getElementById('unit').value})</label>
       <input 
         id="length-input" 
         type="number" 
@@ -1507,8 +1437,6 @@ function openLengthInputDialog() {
         type="number" 
         step="0.1" 
         value="0"
-        min="0"
-        max="360"
         placeholder="0 to 360"
         style="
           width: 100%;
@@ -1549,7 +1477,7 @@ function openLengthInputDialog() {
         transition: all 0.15s ease;
       ">Cancel</button>
     </div>
-  `;
+  \`;
   
   overlay.appendChild(dialog);
   document.body.appendChild(overlay);
@@ -1570,19 +1498,10 @@ function openLengthInputDialog() {
   inputDialog = overlay;
   
   // Hover effects
-  confirmBtn.addEventListener('mouseover', () => {
-    confirmBtn.style.background = '#106ebe';
-  });
-  confirmBtn.addEventListener('mouseout', () => {
-    confirmBtn.style.background = '#0078d4';
-  });
-  
-  cancelBtn.addEventListener('mouseover', () => {
-    cancelBtn.style.background = '#f5f5f5';
-  });
-  cancelBtn.addEventListener('mouseout', () => {
-    cancelBtn.style.background = '#fafafa';
-  });
+  confirmBtn.addEventListener('mouseover', () => { confirmBtn.style.background = '#106ebe'; });
+  confirmBtn.addEventListener('mouseout', () => { confirmBtn.style.background = '#0078d4'; });
+  cancelBtn.addEventListener('mouseover', () => { cancelBtn.style.background = '#f5f5f5'; });
+  cancelBtn.addEventListener('mouseout', () => { cancelBtn.style.background = '#fafafa'; });
   
   function closeDialog() {
     if (inputDialog) {
@@ -1591,7 +1510,7 @@ function openLengthInputDialog() {
     }
   }
   
-  function placePointWithLength() {
+  async function placePointWithLength() {
     const length = parseFloat(lengthInput.value);
     const angle = parseFloat(angleInput.value);
     
@@ -1600,9 +1519,9 @@ function openLengthInputDialog() {
       return;
     }
     
-    if (isNaN(angle) || angle < 0 || angle > 360) {
-      alert('Please enter a valid angle (0-360)');
-      return;
+    if (isNaN(angle)) {
+        alert('Please enter a valid angle');
+        return;
     }
     
     // Convert angle to radians (standard math convention: 0° = right)
@@ -1617,17 +1536,15 @@ function openLengthInputDialog() {
     const coordY = ((origin.y - newY) / scaleY).toFixed(3);
     
     // Place the point
-    (async () => {
-      await pywebview.api.add_point(coordX, coordY, activeBundle);
-      bundles[activeBundle].push([parseFloat(coordX), parseFloat(coordY)]);
-      
-      lastPlacedPoint = {x: newX, y: newY};
-      
-      animatePointPlacement(newX, newY, colors[activeBundle]);
-      updateAllPoints();
-      redraw();
-      await updateResults();
-    })();
+    await pywebview.api.add_point(coordX, coordY, activeBundle);
+    bundles[activeBundle].push([parseFloat(coordX), parseFloat(coordY)]);
+    
+    lastPlacedPoint = {x: newX, y: newY};
+    
+    animatePointPlacement(newX, newY, colors[activeBundle]);
+    updateAllPoints();
+    redraw();
+    await updateResults();
     
     closeDialog();
   }
@@ -1637,16 +1554,21 @@ function openLengthInputDialog() {
   
   // Enter key to confirm
   lengthInput.addEventListener('keypress', (e) => {
-    if (e.key === 'Enter') {
-      placePointWithLength();
-    }
+    if (e.key === 'Enter') placePointWithLength();
+  });
+   angleInput.addEventListener('keypress', (e) => {
+    if (e.key === 'Enter') placePointWithLength();
   });
   
   // Escape to cancel
+  overlay.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') closeDialog();
+  });
   lengthInput.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape') {
-      closeDialog();
-    }
+    if (e.key === 'Escape') { e.stopPropagation(); closeDialog(); }
+  });
+   angleInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') { e.stopPropagation(); closeDialog(); }
   });
 }
 
@@ -1746,17 +1668,15 @@ function drawPreviewLine() {
   const dx = targetX - lastPlacedPoint.x;
   const dy = targetY - lastPlacedPoint.y;
   const canvasDistPx = Math.sqrt(dx * dx + dy * dy);
-  const canvasDistUnits = canvasDistPx / scaleX;
+  const canvasDistUnits = canvasDistPx / scaleX; // Assume scaleX and scaleY are same
   
   // Draw constraint indicator if shift pressed
   if (shiftKeyPressed) {
+    ctx.fillStyle = colors[activeBundle];
+    ctx.font = 'bold 12px Inter, sans-serif';
     if (constrainedPos.type === 'horizontal') {
-      ctx.fillStyle = colors[activeBundle];
-      ctx.font = 'bold 12px Inter, sans-serif';
       ctx.fillText('HORIZONTAL', targetX + 10, targetY - 15);
     } else {
-      ctx.fillStyle = colors[activeBundle];
-      ctx.font = 'bold 12px Inter, sans-serif';
       ctx.fillText('VERTICAL', targetX + 10, targetY - 15);
     }
   }
@@ -1779,6 +1699,7 @@ function drawPreviewLine() {
 function setActiveBundle(bundle) {
   activeBundle = bundle;
   referencePoint = null; // Clear reference when switching bundles
+  lastPlacedPoint = null; // --- NEW: Clear last point when switching bundles
   document.querySelectorAll('.bundle-btn').forEach(btn => {
     btn.classList.toggle('active', btn.dataset.bundle === bundle);
   });
@@ -1786,113 +1707,54 @@ function setActiveBundle(bundle) {
 
 // ===== Drawing Functions =====
 function drawGrid() {
-  // Calculate visible area in grid coordinates
-  const visibleArea = {
-    left: -panOffset.x / zoomLevel,
-    top: -panOffset.y / zoomLevel,
-    right: (canvas.width - panOffset.x) / zoomLevel,
-    bottom: (canvas.height - panOffset.y) / zoomLevel
-  };
-
-  // Calculate grid spacing based on zoom level
-  let gridSpacing = 40; // Base grid spacing
-  if (zoomLevel < 0.5) {
-    gridSpacing = Math.ceil(40 / zoomLevel / 2) * 2;
-  }
-
-  // Draw minor grid
   ctx.strokeStyle = "#f5f5f5";
-  ctx.lineWidth = 0.5;
-  
-  const startX = Math.floor(visibleArea.left / gridSpacing) * gridSpacing;
-  const endX = Math.ceil(visibleArea.right / gridSpacing) * gridSpacing;
-  const startY = Math.floor(visibleArea.top / gridSpacing) * gridSpacing;
-  const endY = Math.ceil(visibleArea.bottom / gridSpacing) * gridSpacing;
-
-  // Draw minor grid lines
-  for (let x = startX; x <= endX; x += gridSpacing) {
-    ctx.beginPath();
-    ctx.moveTo(x, startY);
-    ctx.lineTo(x, endY);
-    ctx.stroke();
-  }
-  for (let y = startY; y <= endY; y += gridSpacing) {
-    ctx.beginPath();
-    ctx.moveTo(startX, y);
-    ctx.lineTo(endX, y);
-    ctx.stroke();
-  }
-
-  // Draw major grid (every 5 minor lines)
-  ctx.strokeStyle = "#e0e0e0";
   ctx.lineWidth = 1;
-  const majorSpacing = gridSpacing * 5;
-
-  const startMajorX = Math.floor(visibleArea.left / majorSpacing) * majorSpacing;
-  const endMajorX = Math.ceil(visibleArea.right / majorSpacing) * majorSpacing;
-  const startMajorY = Math.floor(visibleArea.top / majorSpacing) * majorSpacing;
-  const endMajorY = Math.ceil(visibleArea.bottom / majorSpacing) * majorSpacing;
-
-  for (let x = startMajorX; x <= endMajorX; x += majorSpacing) {
-    ctx.beginPath();
-    ctx.moveTo(x, startMajorY);
-    ctx.lineTo(x, endMajorY);
-    ctx.stroke();
+  
+  // Draw grid lines from origin
+  for (let x = origin.x; x < canvas.width; x += scaleX) {
+    ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, canvas.height); ctx.stroke();
   }
-  for (let y = startMajorY; y <= endMajorY; y += majorSpacing) {
-    ctx.beginPath();
-    ctx.moveTo(startMajorX, y);
-    ctx.lineTo(endMajorX, y);
-    ctx.stroke();
+  for (let x = origin.x; x > 0; x -= scaleX) {
+    ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, canvas.height); ctx.stroke();
   }
-
-  // Draw axes
+  for (let y = origin.y; y < canvas.height; y += scaleY) {
+    ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(canvas.width, y); ctx.stroke();
+  }
+   for (let y = origin.y; y > 0; y -= scaleY) {
+    ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(canvas.width, y); ctx.stroke();
+  }
+  
   ctx.strokeStyle = "#424242";
   ctx.lineWidth = 2;
   ctx.shadowColor = "rgba(0,0,0,0.1)";
   ctx.shadowBlur = 4;
   
-  // X-axis
   ctx.beginPath();
-  ctx.moveTo(startX, 0);
-  ctx.lineTo(endX, 0);
+  ctx.moveTo(0, origin.y);
+  ctx.lineTo(canvas.width, origin.y);
   ctx.stroke();
   
-  // Y-axis
   ctx.beginPath();
-  ctx.moveTo(0, startY);
-  ctx.lineTo(0, endY);
+  ctx.moveTo(origin.x, 0);
+  ctx.lineTo(origin.x, canvas.height);
   ctx.stroke();
   
   ctx.shadowBlur = 0;
-
-  // Draw coordinate labels
-  ctx.fillStyle = "#424242";
-  ctx.font = "11px Inter, sans-serif";
-  ctx.textAlign = "center";
-  
-  // X-axis labels
-  for (let x = startMajorX; x <= endMajorX; x += majorSpacing) {
-    if (x !== 0) { // Skip 0 to avoid overlapping labels
-      ctx.fillText(x.toString(), x, 20);
-    }
-  }
-  
-  // Y-axis labels
-  ctx.textAlign = "right";
-  for (let y = startMajorY; y <= endMajorY; y += majorSpacing) {
-    if (y !== 0) { // Skip 0 to avoid overlapping labels
-      ctx.fillText((-y).toString(), -10, y + 4);
-    }
-  }
-
-  // Draw origin label
-  ctx.fillText("0", -10, 20);
   
   ctx.fillStyle = "#424242";
   ctx.font = "600 12px Inter, sans-serif";
   ctx.fillText("(0, 0)", origin.x + 8, origin.y - 8);
 }
+
+function getBundleCenter(points) {
+    let cx = 0, cy = 0;
+    points.forEach(([x, y]) => {
+        cx += x;
+        cy += y;
+    });
+    return { x: cx / points.length, y: cy / points.length };
+}
+
 
 function drawBundleConnections(points, color) {
   if (points.length < 2) return;
@@ -1902,9 +1764,14 @@ function drawBundleConnections(points, color) {
   ctx.globalAlpha = 1;
   
   // Draw line connections between consecutive points
-  for (let i = 0; i < points.length - 1; i++) {
+  for (let i = 0; i < points.length; i++) {
     const [x1, y1] = points[i];
-    const [x2, y2] = points[i + 1];
+    // Connect to next point, or wrap to first point
+    const [x2, y2] = points[(i + 1) % points.length]; 
+    
+    // Don't draw closing line if only 2 points
+    if (points.length === 2 && i === 1) continue; 
+    
     const cx1 = origin.x + x1 * scaleX;
     const cy1 = origin.y - y1 * scaleY;
     const cx2 = origin.x + x2 * scaleX;
@@ -1923,53 +1790,15 @@ function drawBundleConnections(points, color) {
     const mx = (cx1 + cx2) / 2;
     const my = (cy1 + cy2) / 2;
     
-    ctx.fillStyle = 'rgba(255, 255, 255, 0.95)';
-    ctx.fillRect(mx - 30, my - 20, 60, 20);
-    ctx.strokeStyle = color;
-    ctx.lineWidth = 1;
-    ctx.strokeRect(mx - 30, my - 20, 60, 20);
-    
-    ctx.fillStyle = color;
+    // Simple text background
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.8)';
     ctx.font = 'bold 11px Consolas, Monaco, monospace';
     ctx.textAlign = 'center';
-    ctx.fillText(dist.toFixed(3), mx, my - 7);
-    ctx.textAlign = 'left';
-  }
-  
-  // Draw closing line (last point back to first point) if 3+ conductors
-  if (points.length >= 3) {
-    const [x1, y1] = points[points.length - 1]; // Last point
-    const [x2, y2] = points[0]; // First point
-    const cx1 = origin.x + x1 * scaleX;
-    const cy1 = origin.y - y1 * scaleY;
-    const cx2 = origin.x + x2 * scaleX;
-    const cy2 = origin.y - y2 * scaleY;
-    
-    ctx.strokeStyle = color;
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.moveTo(cx1, cy1);
-    ctx.lineTo(cx2, cy2);
-    ctx.stroke();
-    
-    // Draw closing segment distance
-    const dx = x2 - x1;
-    const dy = y2 - y1;
-    const dist = Math.sqrt(dx * dx + dy * dy);
-    
-    const mx = (cx1 + cx2) / 2;
-    const my = (cy1 + cy2) / 2;
-    
-    ctx.fillStyle = 'rgba(255, 255, 255, 0.95)';
-    ctx.fillRect(mx - 30, my - 20, 60, 20);
-    ctx.strokeStyle = color;
-    ctx.lineWidth = 1;
-    ctx.strokeRect(mx - 30, my - 20, 60, 20);
+    const textWidth = ctx.measureText(dist.toFixed(3)).width;
+    ctx.fillRect(mx - textWidth / 2 - 4, my - 10, textWidth + 8, 14);
     
     ctx.fillStyle = color;
-    ctx.font = 'bold 11px Consolas, Monaco, monospace';
-    ctx.textAlign = 'center';
-    ctx.fillText(dist.toFixed(3), mx, my - 7);
+    ctx.fillText(dist.toFixed(3), mx, my + 1);
     ctx.textAlign = 'left';
   }
   
@@ -1979,23 +1808,18 @@ function drawBundleConnections(points, color) {
 function drawBundleCircle(points, color) {
   if (points.length < 2) return;
   
-  let cx = 0, cy = 0;
-  points.forEach(([x, y]) => {
-    cx += x;
-    cy += y;
-  });
-  cx /= points.length;
-  cy /= points.length;
+  const center = getBundleCenter(points);
   
   let maxR = 0;
   points.forEach(([x, y]) => {
-    const dist = Math.sqrt((x - cx) ** 2 + (y - cy) ** 2);
+    const dist = Math.sqrt((x - center.x) ** 2 + (y - center.y) ** 2);
     maxR = Math.max(maxR, dist);
   });
   
-  const centerX = origin.x + cx * scaleX;
-  const centerY = origin.y - cy * scaleY;
-  const radius = maxR * scaleX * 1.2;
+  const centerX = origin.x + center.x * scaleX;
+  const centerY = origin.y - center.y * scaleY;
+  // Use a sensible radius, e.g., max distance from center + 20%
+  const radius = maxR * scaleX * 1.2; 
   
   ctx.strokeStyle = color;
   ctx.lineWidth = 2;
@@ -2077,7 +1901,7 @@ function drawGMDLines() {
       ctx.fillStyle = '#FF6B35';
       ctx.font = 'bold 13px Consolas, Monaco, monospace';
       ctx.textAlign = 'center';
-      ctx.fillText(`GMD ${b1}-${b2}: ${gmd.toFixed(4)}`, mx, my + 3);
+      ctx.fillText(\`GMD \${b1}-\${b2}: \${gmd.toFixed(4)}\`, mx, my + 3);
       ctx.textAlign = 'left';
     }
   });
@@ -2123,27 +1947,8 @@ function drawPoints() {
   }
 }
 
-// Add mouseup and mouseleave handlers for panning
-document.addEventListener('mouseup', (e) => {
-  if (e.button === 1) { // Middle mouse button
-    isPanning = false;
-  }
-});
-
-canvas.addEventListener('mouseleave', () => {
-  isPanning = false;
-});
-
 function redraw() {
   ctx.clearRect(0, 0, canvas.width, canvas.height);
-  
-  // Save the current context state
-  ctx.save();
-  
-  // Apply pan and zoom transformations
-  ctx.translate(panOffset.x, panOffset.y);
-  ctx.scale(zoomLevel, zoomLevel);
-  
   drawGrid();
   
   for (let b in bundles) {
@@ -2156,15 +1961,6 @@ function redraw() {
   drawPoints();
   drawSnapIndicator();
   drawPreviewLine();
-  
-  // Restore the context state after drawing
-  ctx.restore();
-  
-  // Draw zoom level indicator
-  ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
-  ctx.font = '12px Inter, sans-serif';
-  ctx.fillText(`Zoom: ${(zoomLevel * 100).toFixed(0)}%`, 10, 20);
-  ctx.fillText('Middle-click + drag to pan', 10, 40);
 }
 
 // ===== Animation =====
@@ -2192,92 +1988,31 @@ function animatePointPlacement(x, y, color) {
 }
 
 // ===== Canvas Events =====
-
-// Zoom functionality
-canvas.addEventListener('wheel', (e) => {
-  e.preventDefault();
-  
-  const rect = canvas.getBoundingClientRect();
-  const mouseX = (e.clientX - rect.left) * (canvas.width / rect.width);
-  const mouseY = (e.clientY - rect.top) * (canvas.height / rect.height);
-  
-  // Get mouse position in world coordinates (before zoom)
-  const worldX = (mouseX - panOffset.x) / zoomLevel;
-  const worldY = (mouseY - panOffset.y) / zoomLevel;
-  
-  // Calculate zoom factor based on scroll direction
-  const zoomFactor = e.deltaY < 0 ? 1.1 : 0.9;
-  
-  // Update zoom level
-  const newZoom = zoomLevel * zoomFactor;
-  
-  // Limit zoom level between 0.05 and 5
-  if (newZoom >= 0.05 && newZoom <= 5) {
-    // Update zoom level
-    zoomLevel = newZoom;
-    scaleX = 40 * zoomLevel;
-    scaleY = 40 * zoomLevel;
-    
-    // Calculate new pan offset to keep mouse position fixed
-    panOffset.x = mouseX - worldX * zoomLevel;
-    panOffset.y = mouseY - worldY * zoomLevel;
-    
-    redraw();
-  }
-});
-
-// Middle mouse button panning
-canvas.addEventListener('mousedown', (e) => {
-  if (e.button === 1) { // Middle mouse button
-    e.preventDefault();
-    isPanning = true;
-    lastMousePos = {x: e.clientX, y: e.clientY};
-  }
-});
-
 canvas.addEventListener('mousemove', (e) => {
   const rect = canvas.getBoundingClientRect();
   const scaleFactorX = canvas.width / rect.width;
   const scaleFactorY = canvas.height / rect.height;
   
-  if (isPanning) {
-    const dx = e.clientX - lastMousePos.x;
-    const dy = e.clientY - lastMousePos.y;
-    
-    panOffset.x += dx;
-    panOffset.y += dy;
-    
-    lastMousePos = {x: e.clientX, y: e.clientY};
-    redraw();
-    return;  // Skip other calculations while panning
-  }
-  
-  // Get mouse position in screen coordinates
-  const screenX = (e.clientX - rect.left) * scaleFactorX;
-  const screenY = (e.clientY - rect.top) * scaleFactorY;
-  
-  // Convert to world coordinates
-  const mx = (screenX - panOffset.x) / zoomLevel;
-  const my = (screenY - panOffset.y) / zoomLevel;
+  const mx = (e.clientX - rect.left) * scaleFactorX;
+  const my = (e.clientY - rect.top) * scaleFactorY;
   
   mousePos = {x: mx, y: my};
   
   snapPoint = findSnapPoint(mx, my);
   
-  // Calculate grid coordinates relative to origin
-  const x = ((mx - origin.x / zoomLevel) / (scaleX / zoomLevel)).toFixed(3);
-  const y = ((origin.y / zoomLevel - my) / (scaleY / zoomLevel)).toFixed(3);
+  const x = ((mx - origin.x) / scaleX).toFixed(3);
+  const y = ((origin.y - my) / scaleY).toFixed(3);
   
   const display = document.getElementById('coordDisplay');
   
   if (snapPoint) {
-    display.textContent = `SNAP: ${snapPoint.bundle}${snapPoint.index + 1} (${snapPoint.coordX.toFixed(3)}, ${snapPoint.coordY.toFixed(3)})`;
+    display.textContent = \`SNAP: \${snapPoint.bundle}\${snapPoint.index + 1} (\${snapPoint.coordX.toFixed(3)}, \${snapPoint.coordY.toFixed(3)})\`;
     display.style.background = 'rgba(255, 185, 0, 0.9)';
   } else if (lastPlacedPoint && shiftKeyPressed) {
-    display.textContent = `SHIFT: Constrained placement | x: ${x}, y: ${y}`;
+    display.textContent = \`SHIFT: Constrained placement | x: \${x}, y: \${y}\`;
     display.style.background = 'rgba(0, 120, 212, 0.9)';
   } else {
-    display.textContent = `x: ${x}, y: ${y}`;
+    display.textContent = \`x: \${x}, y: \${y}\`;
     display.style.background = 'rgba(0, 0, 0, 0.85)';
   }
   display.style.opacity = '1';
@@ -2286,22 +2021,12 @@ canvas.addEventListener('mousemove', (e) => {
 });
 
 canvas.addEventListener('click', async (e) => {
-  // Ignore clicks if we were just panning
-  if (isPanning) {
-    return;
-  }
-  
   const rect = canvas.getBoundingClientRect();
   const scaleFactorX = canvas.width / rect.width;
   const scaleFactorY = canvas.height / rect.height;
   
-  // Get screen coordinates
-  const screenX = (e.clientX - rect.left) * scaleFactorX;
-  const screenY = (e.clientY - rect.top) * scaleFactorY;
-  
-  // Convert to world coordinates
-  const mx = (screenX - panOffset.x) / zoomLevel;
-  const my = (screenY - panOffset.y) / zoomLevel;
+  const mx = (e.clientX - rect.left) * scaleFactorX;
+  const my = (e.clientY - rect.top) * scaleFactorY;
   
   let finalPos;
   let x, y;
@@ -2351,7 +2076,6 @@ canvas.addEventListener('click', async (e) => {
   
   await pywebview.api.add_point(x, y, activeBundle);
   bundles[activeBundle].push([parseFloat(x), parseFloat(y)]);
-  addHistoryItem('Add Point', `Bundle ${activeBundle} at (${x}, ${y})`);
   
   lastPlacedPoint = finalPos;
   
@@ -2366,205 +2090,49 @@ canvas.addEventListener('mouseleave', () => {
   document.getElementById('coordDisplay').style.opacity = '0';
 });
 
-// ESC key to clear pointer and restart
-window.addEventListener('keydown', (e) => {
-  if (e.key === 'Escape') {
-    lastPlacedPoint = null;
-    snapPoint = null;
-    mousePos = {x: 0, y: 0};
-    redraw();
-    
-    const display = document.getElementById('coordDisplay');
-    display.textContent = 'Pointer cleared • Ready for new bundle';
-    display.style.background = 'rgba(16, 124, 16, 0.9)';
-    display.style.opacity = '1';
-    
-    setTimeout(() => {
-      display.style.opacity = '0';
-    }, 2000);
-  }
-});
 
 // ===== Results Display =====
-// History tracking
-let history = [];
-
-function addHistoryItem(action, details) {
-  const time = new Date().toLocaleTimeString();
-  const item = { time, action, details };
-  history.push(item);
-  updateHistoryDisplay();
-}
-
-// Export/Import functionality
-function exportSession() {
-  const sessionData = {
-    bundles,
-    history,
-    settings: {
-      scaleX,
-      scaleY,
-      zoomLevel,
-      panOffset,
-      unit: document.getElementById('unit').value,
-      material: document.getElementById('material').value,
-      length: document.getElementById('length').value,
-      radius: document.getElementById('radius').value,
-      freq: document.getElementById('freq').value,
-      gmr: {
-        A: document.getElementById('gA').value,
-        B: document.getElementById('gB').value,
-        C: document.getElementById('gC').value
-      }
-    }
-  };
-  
-  const blob = new Blob([JSON.stringify(sessionData, null, 2)], { type: 'application/json' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = `transmission-line-session-${new Date().toISOString().split('T')[0]}.json`;
-  a.click();
-  URL.revokeObjectURL(url);
-  
-  addHistoryItem('Export', 'Session exported to file');
-}
-
-function importSession() {
-  document.getElementById('importFile').click();
-}
-
-async function handleImport(event) {
-  const file = event.target.files[0];
-  if (!file) return;
-  
-  try {
-    const text = await file.text();
-    const data = JSON.parse(text);
-    
-    // Restore settings
-    document.getElementById('unit').value = data.settings.unit;
-    document.getElementById('material').value = data.settings.material;
-    document.getElementById('length').value = data.settings.length;
-    document.getElementById('radius').value = data.settings.radius;
-    document.getElementById('freq').value = data.settings.freq;
-    document.getElementById('gA').value = data.settings.gmr.A;
-    document.getElementById('gB').value = data.settings.gmr.B;
-    document.getElementById('gC').value = data.settings.gmr.C;
-    document.getElementById('scaleX').value = data.settings.scaleX;
-    document.getElementById('scaleY').value = data.settings.scaleY;
-    
-    // Update internal variables
-    scaleX = data.settings.scaleX;
-    scaleY = data.settings.scaleY;
-    zoomLevel = data.settings.zoomLevel;
-    panOffset = data.settings.panOffset;
-    
-    // Clear existing bundles
-    await pywebview.api.clear_all();
-    bundles = {A: [], B: [], C: []};
-    
-    // Restore bundles
-    for (const [bundle, points] of Object.entries(data.bundles)) {
-      for (const [x, y] of points) {
-        await pywebview.api.add_point(x, y, bundle);
-        bundles[bundle].push([x, y]);
-      }
-    }
-    
-    // Update everything
-    await updateUnit();
-    await updateLineParams();
-    await setGMRs();
-    
-    history = data.history || [];
-    updateHistoryDisplay();
-    redraw();
-    
-    addHistoryItem('Import', 'Session imported from file');
-  } catch (err) {
-    console.error('Import error:', err);
-    alert('Error importing session file. Please check the file format.');
-  }
-  
-  event.target.value = ''; // Reset file input
-}
-
-function updateHistoryDisplay() {
-  const container = document.getElementById('historyContainer');
-  if (!container) return;
-  
-  const html = history.map(item => `
-    <div class="history-item">
-      <span class="action">${item.action}${item.details ? ': ' + item.details : ''}</span>
-      <span class="time">${item.time}</span>
-    </div>
-  `).join('');
-  
-  container.innerHTML = html;
-  container.scrollTop = container.scrollHeight;
-}
-
 async function updateResults() {
   const results = await pywebview.api.compute_results();
   const container = document.getElementById('results');
-  const historyList = document.getElementById('historyList');
   
-  // Update history list if we have history
-  if (results.history && results.history.length > 0) {
-    historyList.innerHTML = results.history.map(entry => `
-      <div class="history-item">
-        <div class="history-timestamp">${entry.timestamp}</div>
-        <div class="history-config">
-          ${entry.config.material} • ${entry.config.length}km • ${entry.config.frequency}Hz
-        </div>
-        <div class="history-details">
-          <div>GMR: ${Object.keys(entry.config.r_self).map(k => 
-            `${k}: ${entry.config.r_self[k].toFixed(6)}m`).join(', ')}</div>
-          <div>Points: ${Object.keys(entry.config.bundles).map(k => 
-            `${k}: ${entry.config.bundles[k].length}`).join(', ')}</div>
-        </div>
-      </div>
-    `).join('');
-  }
-  
-  if (results.gmr.length === 0 && results.gmd.length === 0) {
-    container.innerHTML = `
+  if (!results || (!results.gmr || results.gmr.length === 0) && (!results.gmd || results.gmd.length === 0)) {
+    container.innerHTML = \`
       <div class="empty-state">
         <svg class="empty-icon" fill="currentColor" viewBox="0 0 20 20">
           <path d="M10 12a2 2 0 100-4 2 2 0 000 4z"/>
           <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm0-2a6 6 0 100-12 6 6 0 000 12z"/>
         </svg>
         <p class="empty-text">Click on the canvas to place conductor points • Hold SHIFT for 90° constraints</p>
-      </div>`;
+      </div>\`;
     return;
   }
   
   let html = '';
   
-  if (results.gmr.length > 0) {
+  if (results.gmr && results.gmr.length > 0) {
     html += '<div class="result-card"><div class="result-card-title">Geometric Mean Radius (GMR)</div>';
     results.gmr.forEach(r => {
-      html += `
+      html += \`
         <div class="result-item">
           <span class="result-label">
-            <span class="bundle-badge" style="background:${colors[r.label]}"></span>
-            Bundle ${r.label} <span style="opacity:0.6; font-size:11px;">(${r.count} conductor${r.count>1?'s':''})</span>
+            <span class="bundle-badge" style="background:\${colors[r.label]}"></span>
+            Bundle \${r.label} <span style="opacity:0.6; font-size:11px;">(\${r.count} conductor\${r.count>1?'s':''})</span>
           </span>
-          <span class="result-value">${r.value.toFixed(6)} m</span>
-        </div>`;
+          <span class="result-value">\${r.value.toFixed(6)} m</span>
+        </div>\`;
     });
     html += '</div>';
   }
   
-  if (results.gmd.length > 0) {
+  if (results.gmd && results.gmd.length > 0) {
     html += '<div class="result-card"><div class="result-card-title">Geometric Mean Distance (GMD)</div>';
     results.gmd.forEach(r => {
-      html += `
+      html += \`
         <div class="result-item">
-          <span class="result-label">Distance ${r.pair}</span>
-          <span class="result-value">${r.value.toFixed(6)} m</span>
-        </div>`;
+          <span class="result-label">Distance \${r.pair}</span>
+          <span class="result-value">\${r.value.toFixed(6)} m</span>
+        </div>\`;
     });
     html += '</div>';
   }
@@ -2573,47 +2141,47 @@ async function updateResults() {
     const p = results.params;
     
     html += '<div class="result-card"><div class="result-card-title">Resistance</div>';
-    html += `
+    html += \`
       <div class="result-item">
         <span class="result-label">R per km</span>
-        <span class="result-value">${p.R_per_km.toFixed(6)} Ω/km</span>
+        <span class="result-value">\${p.R_per_km.toFixed(6)} Ω/km</span>
       </div>
       <div class="result-item param-highlight">
         <span class="result-label">Total Resistance</span>
-        <span class="result-value">${p.R_total.toFixed(4)} Ω</span>
-      </div>`;
+        <span class="result-value">\${p.R_total.toFixed(4)} Ω</span>
+      </div>\`;
     html += '</div>';
     
     html += '<div class="result-card"><div class="result-card-title">Inductance</div>';
-    html += `
+    html += \`
       <div class="result-item">
         <span class="result-label">L per km</span>
-        <span class="result-value">${p.L_per_km.toFixed(6)} mH/km</span>
+        <span class="result-value">\${p.L_per_km.toFixed(6)} mH/km</span>
       </div>
       <div class="result-item param-highlight">
         <span class="result-label">Total Inductance</span>
-        <span class="result-value">${p.L_total.toFixed(4)} mH</span>
+        <span class="result-value">\${p.L_total.toFixed(4)} mH</span>
       </div>
       <div class="result-item">
         <span class="result-label">Inductive Reactance (X<sub>L</sub>)</span>
-        <span class="result-value">${p.XL.toFixed(4)} Ω</span>
-      </div>`;
+        <span class="result-value">\${p.XL.toFixed(4)} Ω</span>
+      </div>\`;
     html += '</div>';
     
     html += '<div class="result-card"><div class="result-card-title">Capacitance</div>';
-    html += `
-      <div class="result-item">
+    html += \`
+      <div class."result-item">
         <span class="result-label">C per km</span>
-        <span class="result-value">${p.C_per_km.toFixed(6)} nF/km</span>
+        <span class="result-value">\${p.C_per_km.toFixed(6)} nF/km</span>
       </div>
       <div class="result-item param-highlight">
         <span class="result-label">Total Capacitance</span>
-        <span class="result-value">${p.C_total.toFixed(4)} µF</span>
+        <span class="result-value">\${p.C_total.toFixed(4)} µF</span>
       </div>
       <div class="result-item">
         <span class="result-label">Capacitive Reactance (X<sub>C</sub>)</span>
-        <span class="result-value">${p.XC.toFixed(4)} Ω</span>
-      </div>`;
+        <span class="result-value">\${p.XC.toFixed(4)} Ω</span>
+      </div>\`;
     html += '</div>';
   }
   
@@ -2628,13 +2196,14 @@ async function setGMRs() {
   await pywebview.api.set_gmr("A", A);
   await pywebview.api.set_gmr("B", B);
   await pywebview.api.set_gmr("C", C);
-  addHistoryItem('Update GMR', `A: ${A}, B: ${B}, C: ${C}`);
   await updateResults();
 }
 
 async function updateUnit() {
   const u = document.getElementById('unit').value;
   await pywebview.api.set_unit(u);
+  // --- NEW: When unit changes, we must reset GMRs
+  await setGMRs();
 }
 
 async function updateScale() {
@@ -2654,7 +2223,22 @@ async function updateLineParams() {
   const freq = document.getElementById('freq').value;
   
   await pywebview.api.set_line_params(material, length, radius, freq);
-  await updateResults();
+  
+  // --- NEW: Sync GMR boxes with new radius
+  // The radius is in meters, convert it to current selected unit
+  const currentUnit = document.getElementById('unit').value;
+  const conversionFactor = ${JSON.stringify(UNIT_CONVERSIONS)}[currentUnit];
+  if (conversionFactor > 0) {
+    const radiusInCurrentUnits = parseFloat(radius) / conversionFactor;
+    document.getElementById('gA').value = radiusInCurrentUnits.toFixed(4);
+    document.getElementById('gB').value = radiusInCurrentUnits.toFixed(4);
+    document.getElementById('gC').value = radiusInCurrentUnits.toFixed(4);
+  }
+  
+  // --- NEW: Propagate this change to the backend's r' values
+  await setGMRs(); 
+  
+  // updateResults() is already called by setGMRs()
 }
 
 async function clearCurrent() {
@@ -2711,7 +2295,7 @@ async function exportLatex() {
 function showLoadingModal() {
   const modal = document.createElement('div');
   modal.id = 'export-loading-modal';
-  modal.style.cssText = `
+  modal.style.cssText = \`
     position: fixed;
     top: 0;
     left: 0;
@@ -2723,9 +2307,9 @@ function showLoadingModal() {
     justify-content: center;
     z-index: 10000;
     backdrop-filter: blur(4px);
-  `;
+  \`;
   
-  modal.innerHTML = `
+  modal.innerHTML = \`
     <div style="
       background: white;
       border-radius: 12px;
@@ -2767,29 +2351,9 @@ function showLoadingModal() {
         color: #605e5c;
       ">⏱️ This usually takes 5-15 seconds</div>
     </div>
-  `;
+  \`;
   
   document.body.appendChild(modal);
-  
-  // Add animations if not already added
-  if (!document.getElementById('modal-animations')) {
-    const style = document.createElement('style');
-    style.id = 'modal-animations';
-    style.textContent = `
-      @keyframes spin {
-        to { transform: rotate(360deg); }
-      }
-      @keyframes modalFadeIn {
-        from { opacity: 0; transform: scale(0.9); }
-        to { opacity: 1; transform: scale(1); }
-      }
-      @keyframes modalFadeOut {
-        from { opacity: 1; transform: scale(1); }
-        to { opacity: 0; transform: scale(0.9); }
-      }
-    `;
-    document.head.appendChild(style);
-  }
 }
 
 function closeLoadingModal() {
@@ -2807,7 +2371,7 @@ function showResultModal(type, title, message) {
   
   const modal = document.createElement('div');
   modal.id = 'export-result-modal';
-  modal.style.cssText = `
+  modal.style.cssText = \`
     position: fixed;
     top: 0;
     left: 0;
@@ -2820,9 +2384,9 @@ function showResultModal(type, title, message) {
     z-index: 10000;
     backdrop-filter: blur(4px);
     animation: modalFadeIn 0.3s ease;
-  `;
+  \`;
   
-  modal.innerHTML = `
+  modal.innerHTML = \`
     <div style="
       background: white;
       border-radius: 12px;
@@ -2835,25 +2399,28 @@ function showResultModal(type, title, message) {
       <div style="
         font-size: 48px;
         margin-bottom: 20px;
-      ">${icon}</div>
+      ">\${icon}</div>
       
       <h3 style="
         font-size: 20px;
         font-weight: 600;
-        color: ${color};
+        color: \${color};
         margin-bottom: 16px;
-      ">${title}</h3>
+      ">\${title}</h3>
       
       <p style="
         font-size: 14px;
         color: #605e5c;
         line-height: 1.6;
         margin-bottom: 24px;
-      ">${message}</p>
+        max-height: 200px; 
+        overflow-y: auto;
+        text-align: left;
+      ">\${message}</p>
       
       <button onclick="closeResultModal()" style="
         padding: 12px 32px;
-        background: ${color};
+        background: \${color};
         color: white;
         border: none;
         border-radius: 6px;
@@ -2865,7 +2432,7 @@ function showResultModal(type, title, message) {
         Close
       </button>
     </div>
-  `;
+  \`;
   
   document.body.appendChild(modal);
   
@@ -2890,7 +2457,7 @@ function showLatexModal(latexContent) {
   
   const modal = document.createElement('div');
   modal.id = 'latex-display-modal';
-  modal.style.cssText = `
+  modal.style.cssText = \`
     position: fixed;
     top: 0;
     left: 0;
@@ -2903,9 +2470,9 @@ function showLatexModal(latexContent) {
     z-index: 10000;
     backdrop-filter: blur(4px);
     animation: modalFadeIn 0.3s ease;
-  `;
+  \`;
   
-  modal.innerHTML = `
+  modal.innerHTML = \`
     <div style="
       background: white;
       border-radius: 12px;
@@ -2918,7 +2485,6 @@ function showLatexModal(latexContent) {
       flex-direction: column;
       animation: modalFadeIn 0.3s ease;
     ">
-      <!-- Header -->
       <div style="
         padding: 24px 32px;
         border-bottom: 1px solid #e1dfdd;
@@ -2936,7 +2502,7 @@ function showLatexModal(latexContent) {
           <p style="
             font-size: 13px;
             color: #605e5c;
-          ">Select and copy the LaTeX code below, or download it as a .tex file</p>
+          ">Review the code below or export it as a PDF.</p>
         </div>
         <button class="close-latex-btn" style="
           width: 32px;
@@ -2952,7 +2518,6 @@ function showLatexModal(latexContent) {
         " onmouseover="this.style.background='#f3f3f3'" onmouseout="this.style.background='transparent'">×</button>
       </div>
       
-      <!-- Content -->
       <div style="
         flex: 1;
         overflow: hidden;
@@ -2975,10 +2540,9 @@ function showLatexModal(latexContent) {
           outline: none;
           cursor: text;
           overflow-y: auto;
-        ">${latexContent}</textarea>
+        ">\${latexContent}</textarea>
       </div>
       
-      <!-- Footer -->
       <div style="
         padding: 20px 32px;
         border-top: 1px solid #e1dfdd;
@@ -2986,23 +2550,6 @@ function showLatexModal(latexContent) {
         gap: 12px;
         justify-content: flex-end;
       ">
-        <button class="select-all-btn" style="
-          padding: 10px 24px;
-          background: #0078d4;
-          color: white;
-          border: none;
-          border-radius: 6px;
-          font-size: 14px;
-          font-weight: 500;
-          cursor: pointer;
-          transition: all 0.15s ease;
-          display: flex;
-          align-items: center;
-          gap: 8px;
-        " onmouseover="this.style.background='#106ebe'" onmouseout="this.style.background='#0078d4'">
-          📋 Select All
-        </button>
-        
         <button class="copy-latex-btn" style="
           padding: 10px 24px;
           background: #107c10;
@@ -3039,7 +2586,7 @@ function showLatexModal(latexContent) {
         
         <button class="download-latex-btn" style="
           padding: 10px 24px;
-          background: #8e8cd8;
+          background: #0078d4;
           color: white;
           border: none;
           border-radius: 6px;
@@ -3050,7 +2597,7 @@ function showLatexModal(latexContent) {
           display: flex;
           align-items: center;
           gap: 8px;
-        " onmouseover="this.style.background='#7b79c4'" onmouseout="this.style.background='#8e8cd8'">
+        " onmouseover="this.style.background='#106ebe'" onmouseout="this.style.background='#0078d4'">
           💾 Download .tex
         </button>
 
@@ -3071,7 +2618,7 @@ function showLatexModal(latexContent) {
         </button>
       </div>
     </div>
-  `;
+  \`;
   
   document.body.appendChild(modal);
   
@@ -3082,39 +2629,24 @@ function showLatexModal(latexContent) {
   modal.querySelector('.close-latex-btn').addEventListener('click', closeLatexModal);
   modal.querySelector('.close-latex-btn2').addEventListener('click', closeLatexModal);
   
-  modal.querySelector('.select-all-btn').addEventListener('click', function() {
-    textarea.select();
-    textarea.setSelectionRange(0, textarea.value.length);
-    
-    // Visual feedback
-    const btn = this;
-    const originalText = btn.innerHTML;
-    btn.innerHTML = '✅ Selected!';
-    
-    setTimeout(() => {
-      btn.innerHTML = originalText;
-    }, 1500);
-  });
-  
   modal.querySelector('.copy-latex-btn').addEventListener('click', function() {
     textarea.select();
     textarea.setSelectionRange(0, textarea.value.length);
     
-    // Copy using multiple methods for better compatibility
     try {
       // Method 1: Modern clipboard API
       if (navigator.clipboard && navigator.clipboard.writeText) {
         navigator.clipboard.writeText(currentLatexContent).then(() => {
-          showCopySuccess(this);
+          showCopySuccess(this, '✅ Copied!');
         }).catch(() => {
           // Fallback to execCommand
           document.execCommand('copy');
-          showCopySuccess(this);
+          showCopySuccess(this, '✅ Copied!');
         });
       } else {
         // Method 2: Old school execCommand
         document.execCommand('copy');
-        showCopySuccess(this);
+        showCopySuccess(this, '✅ Copied!');
       }
     } catch (err) {
       alert('Failed to copy: ' + err.message);
@@ -3123,7 +2655,7 @@ function showLatexModal(latexContent) {
   
   modal.querySelector('.download-latex-btn').addEventListener('click', function() {
     const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, -5);
-    const filename = `transmission_line_solution_${timestamp}.tex`;
+    const filename = \`transmission_line_solution_\${timestamp}.tex\`;
     
     const blob = new Blob([currentLatexContent], { type: 'text/plain;charset=utf-8' });
     const url = URL.createObjectURL(blob);
@@ -3133,16 +2665,27 @@ function showLatexModal(latexContent) {
     a.click();
     URL.revokeObjectURL(url);
     
-    // Show success feedback
-    const btn = this;
-    const originalText = btn.innerHTML;
-    btn.innerHTML = '✅ Downloaded!';
-    
-    setTimeout(() => {
-      btn.innerHTML = originalText;
-    }, 2000);
+    showCopySuccess(this, '✅ Downloaded!');
   });
 
+  modal.querySelector('.export-pdf-btn').addEventListener('click', async function() {
+      // --- NEW: PDF Export ---
+      closeLatexModal(); // Close this modal first
+      showLoadingModal(); // Show "compiling" modal
+      
+      try {
+        const result = await pywebview.api.generate_pdf_from_latex(currentLatexContent);
+        closeLoadingModal();
+        if (result.success) {
+            showResultModal('success', 'PDF Saved', \`Successfully saved PDF to: <br><b>\${result.path}</b>\`);
+        } else {
+            showResultModal('error', 'PDF Export Failed', result.error);
+        }
+    } catch (error) {
+        closeLoadingModal();
+        showResultModal('error', 'PDF Export Failed', error.toString());
+    }
+  });
   
   // Close on background click
   modal.addEventListener('click', (e) => {
@@ -3167,14 +2710,14 @@ function showLatexModal(latexContent) {
   }, 100);
 }
 
-function showCopySuccess(btn) {
+function showCopySuccess(btn, text) {
   const originalText = btn.innerHTML;
-  btn.innerHTML = '✅ Copied!';
-  btn.style.background = '#107c10';
+  const originalBg = btn.style.background;
+  btn.innerHTML = text;
   
   setTimeout(() => {
     btn.innerHTML = originalText;
-    btn.style.background = '#107c10';
+    btn.style.background = originalBg;
   }, 2000);
 }
 
@@ -3184,35 +2727,50 @@ function closeLatexModal() {
     modal.style.animation = 'modalFadeOut 0.3s ease';
     setTimeout(() => modal.remove(), 300);
   }
-  currentLatexContent = null;
+  // Keep currentLatexContent for PDF export
 }
 
-function copyLatexToClipboard() {
-  if (!currentLatexContent) return;
-  
-navigator.clipboard.writeText(currentLatexContent).then(() => {
-    // Show success feedback
-    const btn = event.target.closest('button'); // Now 'event' is defined
-    const originalText = btn.innerHTML;
-    btn.innerHTML = '✅ Copied!';
-    btn.style.background = '#107c10';
-    
-    setTimeout(() => {
-      btn.innerHTML = originalText;
-      btn.style.background = '#0078d4';
-    }, 2000);
-  }).catch(err => {
-    alert('Failed to copy: ' + err);
+// --- NEW: Panel Resize Functionality ---
+let isResizing = false;
+let currentResizer = null;
+
+document.querySelectorAll('.resizer').forEach(resizer => {
+  resizer.addEventListener('mousedown', (e) => {
+    isResizing = true;
+    currentResizer = resizer;
+    document.body.classList.add('resizing');
+    // Prevent text selection during drag
+    e.preventDefault(); 
   });
-}
-
-
-// ===== History Management =====
-document.getElementById('clearHistory').addEventListener('click', async () => {
-  await pywebview.api.clear_history();
-  document.getElementById('historyList').innerHTML = '';
-  await updateResults();
 });
+
+document.addEventListener('mousemove', (e) => {
+  if (!isResizing) return;
+  
+  const leftPanel = document.getElementById('leftPanel');
+  const rightPanel = document.getElementById('rightPanel');
+  const minPanelWidth = 300; // Min width for side panels
+  const minCanvasWidth = 400; // Min width for center canvas
+
+  if (currentResizer.id === 'leftResizer') {
+    const newLeftWidth = e.clientX;
+    if (newLeftWidth > minPanelWidth && window.innerWidth - newLeftWidth - rightPanel.offsetWidth > minCanvasWidth) {
+      leftPanel.style.width = newLeftWidth + 'px';
+    }
+  } else if (currentResizer.id === 'rightResizer') {
+    const newRightWidth = window.innerWidth - e.clientX;
+    if (newRightWidth > minPanelWidth && window.innerWidth - newRightWidth - leftPanel.offsetWidth > minCanvasWidth) {
+      rightPanel.style.width = newRightWidth + 'px';
+    }
+  }
+});
+
+document.addEventListener('mouseup', () => {
+  isResizing = false;
+  currentResizer = null;
+  document.body.classList.remove('resizing');
+});
+
 
 // ===== Initialize =====
 redraw();
