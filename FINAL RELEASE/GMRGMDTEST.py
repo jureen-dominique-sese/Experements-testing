@@ -1435,6 +1435,13 @@ const SNAP_RADIUS = 15;
 const SNAP_COLOR = "#FFB900";
 let snapPoint = null;
 let allPoints = [];
+// GMR visualization state
+let hoveredGMR = null;
+const GMR_COLORS = {
+  A: 'rgba(216, 59, 1, 0.3)',
+  B: 'rgba(0, 120, 212, 0.3)',
+  C: 'rgba(16, 124, 16, 0.3)'
+};
 let lastPlacedPoint = null;
 let mousePos = {x: 0, y: 0};
 let shiftKeyPressed = false;
@@ -1721,7 +1728,8 @@ function updateAllPoints() {
 
 function findSnapPoint(mouseX, mouseY) {
   let nearest = null;
-  let minDist = SNAP_RADIUS;
+  const worldSnapRadius = SNAP_RADIUS / zoomLevel; // ✅ Scale to world space
+  let minDist = worldSnapRadius;
   
   for (let p of allPoints) {
     const dx = p.x - mouseX;
@@ -1837,7 +1845,6 @@ function setActiveBundle(bundle) {
 
 // ===== Drawing Functions =====
 function drawGrid() {
-  // Calculate visible area in grid coordinates
   const visibleArea = {
     left: -panOffset.x / zoomLevel,
     top: -panOffset.y / zoomLevel,
@@ -1845,8 +1852,7 @@ function drawGrid() {
     bottom: (canvas.height - panOffset.y) / zoomLevel
   };
 
-  // Calculate grid spacing based on zoom level
-  let gridSpacing = 40; // Base grid spacing
+  let gridSpacing = 40;
   if (zoomLevel < 0.5) {
     gridSpacing = Math.ceil(40 / zoomLevel / 2) * 2;
   }
@@ -1860,7 +1866,6 @@ function drawGrid() {
   const startY = Math.floor(visibleArea.top / gridSpacing) * gridSpacing;
   const endY = Math.ceil(visibleArea.bottom / gridSpacing) * gridSpacing;
 
-  // Draw minor grid lines
   for (let x = startX; x <= endX; x += gridSpacing) {
     ctx.beginPath();
     ctx.moveTo(x, startY);
@@ -1874,7 +1879,7 @@ function drawGrid() {
     ctx.stroke();
   }
 
-  // Draw major grid (every 5 minor lines)
+  // Draw major grid
   ctx.strokeStyle = "#e0e0e0";
   ctx.lineWidth = 1;
   const majorSpacing = gridSpacing * 5;
@@ -1903,13 +1908,11 @@ function drawGrid() {
   ctx.shadowColor = "rgba(0,0,0,0.1)";
   ctx.shadowBlur = 4;
   
-  // X-axis
   ctx.beginPath();
   ctx.moveTo(startX, 0);
   ctx.lineTo(endX, 0);
   ctx.stroke();
   
-  // Y-axis
   ctx.beginPath();
   ctx.moveTo(0, startY);
   ctx.lineTo(0, endY);
@@ -1917,32 +1920,30 @@ function drawGrid() {
   
   ctx.shadowBlur = 0;
 
-  // Draw coordinate labels
+  // ✅ FIXED: Draw coordinate labels in meters
   ctx.fillStyle = "#424242";
   ctx.font = "11px Inter, sans-serif";
   ctx.textAlign = "center";
   
-  // X-axis labels
+  // X-axis labels (convert to meters)
   for (let x = startMajorX; x <= endMajorX; x += majorSpacing) {
-    if (x !== 0) { // Skip 0 to avoid overlapping labels
-      ctx.fillText(x.toString(), x, 20);
+    if (x !== 0) {
+      const meterValue = (x - origin.x) / scaleX;
+      ctx.fillText(meterValue.toFixed(1), x, 20);
     }
   }
   
-  // Y-axis labels
+  // Y-axis labels (convert to meters)
   ctx.textAlign = "right";
   for (let y = startMajorY; y <= endMajorY; y += majorSpacing) {
-    if (y !== 0) { // Skip 0 to avoid overlapping labels
-      ctx.fillText((-y).toString(), -10, y + 4);
+    if (y !== 0) {
+      const meterValue = (origin.y - y) / scaleY;
+      ctx.fillText(meterValue.toFixed(1), -10, y + 4);
     }
   }
 
   // Draw origin label
   ctx.fillText("0", -10, 20);
-  
-  ctx.fillStyle = "#424242";
-  ctx.font = "600 12px Inter, sans-serif";
-  ctx.fillText("(0, 0)", origin.x + 8, origin.y - 8);
 }
 
 function drawBundleConnections(points, color) {
@@ -2134,6 +2135,178 @@ function drawGMDLines() {
   });
 }
 
+function drawGMRCircles() {
+  gmrCircles = []; // Reset for hover detection
+  
+  for (let b in bundles) {
+    if (bundles[b].length === 0) continue;
+    
+    // Calculate bundle center
+    const center = getBundleCenter(bundles[b]);
+    const centerX = origin.x + center.x * scaleX;
+    const centerY = origin.y - center.y * scaleY;
+    
+    // Get GMR value from backend (stored in meters)
+    // We need to calculate the visual radius based on the GMR
+    const gmrMeters = (bundles[b].length === 1) 
+      ? parseFloat(document.getElementById(`g${b}`).value) * 0.7788 * UNIT_CONVERSIONS[document.getElementById('unit').value]
+      : null; // For bundles, GMR is calculated differently
+    
+    if (!gmrMeters && bundles[b].length === 1) continue;
+    
+    // For single conductors, use the GMR directly
+    // For bundled conductors, approximate radius as 80% of max distance from center
+    let visualRadius;
+    
+    if (bundles[b].length === 1) {
+      visualRadius = gmrMeters * scaleX * 1.5; // Scale for visibility
+    } else {
+      // Calculate equivalent GMR radius for bundled conductors
+      let maxDist = 0;
+      bundles[b].forEach(([x, y]) => {
+        const dist = Math.sqrt((x - center.x) ** 2 + (y - center.y) ** 2);
+        maxDist = Math.max(maxDist, dist);
+      });
+      visualRadius = maxDist * scaleX * 0.8;
+    }
+    
+    // Store for hover detection
+    gmrCircles.push({
+      bundle: b,
+      centerX: centerX,
+      centerY: centerY,
+      radius: visualRadius,
+      gmrValue: gmrMeters,
+      pointCount: bundles[b].length
+    });
+    
+    // Determine if this GMR is hovered
+    const isHovered = hoveredGMR === b;
+    
+    // Draw GMR circle with animation
+    ctx.save();
+    
+    // Outer glow effect (stronger when hovered)
+    if (isHovered) {
+      ctx.shadowColor = colors[b];
+      ctx.shadowBlur = 20;
+      ctx.globalAlpha = 0.4;
+      
+      ctx.strokeStyle = colors[b];
+      ctx.lineWidth = 4;
+      ctx.beginPath();
+      ctx.arc(centerX, centerY, visualRadius + 5, 0, 2 * Math.PI);
+      ctx.stroke();
+      
+      ctx.shadowBlur = 0;
+    }
+    
+    // Main GMR circle
+    ctx.globalAlpha = isHovered ? 0.5 : 0.25;
+    ctx.fillStyle = colors[b];
+    ctx.beginPath();
+    ctx.arc(centerX, centerY, visualRadius, 0, 2 * Math.PI);
+    ctx.fill();
+    
+    // GMR circle border
+    ctx.globalAlpha = isHovered ? 0.9 : 0.6;
+    ctx.strokeStyle = colors[b];
+    ctx.lineWidth = isHovered ? 3 : 2;
+    ctx.setLineDash([8, 4]);
+    ctx.beginPath();
+    ctx.arc(centerX, centerY, visualRadius, 0, 2 * Math.PI);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    
+    // Draw center marker
+    ctx.globalAlpha = isHovered ? 1 : 0.7;
+    ctx.fillStyle = colors[b];
+    ctx.beginPath();
+    ctx.arc(centerX, centerY, isHovered ? 6 : 4, 0, 2 * Math.PI);
+    ctx.fill();
+    
+    // White center dot
+    ctx.fillStyle = 'white';
+    ctx.beginPath();
+    ctx.arc(centerX, centerY, isHovered ? 3 : 2, 0, 2 * Math.PI);
+    ctx.fill();
+    
+    // Draw GMR label (always visible, enhanced on hover)
+    const labelY = centerY - visualRadius - (isHovered ? 25 : 15);
+    
+    // Label background
+    ctx.globalAlpha = isHovered ? 0.98 : 0.92;
+    ctx.fillStyle = 'white';
+    const labelWidth = isHovered ? 110 : 90;
+    const labelHeight = isHovered ? 26 : 22;
+    ctx.fillRect(centerX - labelWidth/2, labelY - labelHeight/2, labelWidth, labelHeight);
+    
+    // Label border
+    ctx.strokeStyle = colors[b];
+    ctx.lineWidth = isHovered ? 2.5 : 1.5;
+    ctx.strokeRect(centerX - labelWidth/2, labelY - labelHeight/2, labelWidth, labelHeight);
+    
+    // Label text
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = colors[b];
+    ctx.font = isHovered ? 'bold 13px Consolas, Monaco, monospace' : 'bold 11px Consolas, Monaco, monospace';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(`GMR ${b}`, centerX, labelY);
+    
+    // Draw detailed tooltip on hover
+    if (isHovered) {
+      drawGMRTooltip(b, centerX, centerY, visualRadius, gmrMeters);
+    }
+    
+    ctx.restore();
+  }
+}
+
+function drawGMRTooltip(bundle, x, y, radius, gmrValue) {
+  const tooltipX = x + radius + 20;
+  const tooltipY = y;
+  
+  // Tooltip background
+  ctx.globalAlpha = 0.97;
+  ctx.fillStyle = '#2c2c2c';
+  ctx.fillRect(tooltipX, tooltipY - 60, 180, 120);
+  
+  // Tooltip border with gradient
+  ctx.strokeStyle = colors[bundle];
+  ctx.lineWidth = 2;
+  ctx.strokeRect(tooltipX, tooltipY - 60, 180, 120);
+  
+  // Tooltip content
+  ctx.globalAlpha = 1;
+  ctx.fillStyle = 'white';
+  ctx.font = 'bold 13px Inter, sans-serif';
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'top';
+  
+  ctx.fillText(`Bundle ${bundle} Details`, tooltipX + 10, tooltipY - 50);
+  
+  ctx.font = '12px Inter, sans-serif';
+  ctx.fillStyle = '#e0e0e0';
+  
+  const conductorCount = bundles[bundle].length;
+  const gmrDisplay = gmrValue ? (gmrValue * 1000).toFixed(4) : 'N/A';
+  
+  ctx.fillText(`Conductors: ${conductorCount}`, tooltipX + 10, tooltipY - 25);
+  ctx.fillText(`GMR: ${gmrDisplay} mm`, tooltipX + 10, tooltipY);
+  ctx.fillText(`Radius: ${(radius / scaleX).toFixed(3)} m`, tooltipX + 10, tooltipY + 25);
+  
+  // Draw pointer line from circle to tooltip
+  ctx.strokeStyle = colors[bundle];
+  ctx.lineWidth = 1.5;
+  ctx.setLineDash([3, 3]);
+  ctx.beginPath();
+  ctx.moveTo(x + radius, y);
+  ctx.lineTo(tooltipX, tooltipY);
+  ctx.stroke();
+  ctx.setLineDash([]);
+}
+
 function drawPoints() {
   for (let b in bundles) {
     ctx.fillStyle = colors[b];
@@ -2203,7 +2376,8 @@ function redraw() {
       drawBundleConnections(bundles[b], colors[b]);
     }
   }
-  
+
+  drawGMRCircles();
   drawGMDLines();
   drawPoints();
   drawSnapIndicator();
@@ -2266,18 +2440,15 @@ canvas.addEventListener('wheel', (e) => {
   const worldX = (mouseX - panOffset.x) / zoomLevel;
   const worldY = (mouseY - panOffset.y) / zoomLevel;
   
-  // Calculate zoom factor based on scroll direction
+  // Calculate zoom factor
   const zoomFactor = e.deltaY < 0 ? 1.1 : 0.9;
-  
-  // Update zoom level
   const newZoom = zoomLevel * zoomFactor;
   
   // Limit zoom level between 0.05 and 5
   if (newZoom >= 0.05 && newZoom <= 5) {
-    // Update zoom level
     zoomLevel = newZoom;
-    scaleX = 40 * zoomLevel;
-    scaleY = 40 * zoomLevel;
+    // ✅ REMOVED: scaleX = 40 * zoomLevel;
+    // ✅ REMOVED: scaleY = 40 * zoomLevel;
     
     // Calculate new pan offset to keep mouse position fixed
     panOffset.x = mouseX - worldX * zoomLevel;
@@ -2322,6 +2493,25 @@ canvas.addEventListener('mousemove', (e) => {
   const my = (screenY - panOffset.y) / zoomLevel;
   
   mousePos = {x: mx, y: my};
+
+    let foundHover = false;
+  for (let gmr of gmrCircles) {
+    const dx = mx - gmr.centerX;
+    const dy = my - gmr.centerY;
+    const dist = Math.sqrt(dx * dx + dy * dy);
+    
+    if (dist <= gmr.radius) {
+      hoveredGMR = gmr.bundle;
+      foundHover = true;
+      canvas.style.cursor = 'help';
+      break;
+    }
+  }
+  
+  if (!foundHover) {
+    hoveredGMR = null;
+    canvas.style.cursor = 'crosshair';
+  }
   
   snapPoint = findSnapPoint(mx, my);
   
@@ -2565,7 +2755,18 @@ function updateHistoryDisplay() {
   container.innerHTML = html;
   container.scrollTop = container.scrollHeight;
 }
+let updateResultsTimeout = null;
+let isUpdating = false;
 
+function showCalculatingIndicator() {
+  const container = document.getElementById('results');
+  container.innerHTML = `
+    <div style="text-align: center; padding: 40px 20px;">
+      <div style="width: 40px; height: 40px; border: 3px solid #e1dfdd; border-top-color: #0078d4; border-radius: 50%; margin: 0 auto 16px; animation: spin 0.8s linear infinite;"></div>
+      <p style="font-size: 13px; color: #605e5c;">Calculating...</p>
+    </div>
+  `;
+}
 async function updateResults() {
   const results = await pywebview.api.compute_results();
   const container = document.getElementById('results');
@@ -2735,6 +2936,18 @@ async function clearAll() {
   referencePoint = null; // Clear reference when clearing all
   updateAllPoints();
   redraw();
+  
+  // Reset results display immediately
+  const container = document.getElementById('results');
+  container.innerHTML = `
+    <div class="empty-state">
+      <svg class="empty-icon" fill="currentColor" viewBox="0 0 20 20">
+        <path d="M10 12a2 2 0 100-4 2 2 0 000 4z"/>
+        <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm0-2a6 6 0 100-12 6 6 0 000 12z"/>
+      </svg>
+      <p class="empty-text">Click on the canvas to place conductor points • Hold SHIFT for 90° constraints</p>
+    </div>`;
+    
   await updateResults();
 }
 // ===== LaTeX Export =====
