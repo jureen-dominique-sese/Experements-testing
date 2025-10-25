@@ -1210,20 +1210,58 @@ canvas {
   <!-- Left Sidebar -->
   <div class="sidebar">
     
-    <!-- Bundle Selection -->
-    <div class="sidebar-section">
-      <div class="section-title">Active Bundle</div>
-      <div class="bundle-selector">
-        <button class="bundle-btn active" data-bundle="A" onclick="setActiveBundle('A')">A</button>
-        <button class="bundle-btn" data-bundle="B" onclick="setActiveBundle('B')">B</button>
-        <button class="bundle-btn" data-bundle="C" onclick="setActiveBundle('C')">C</button>
-      </div>
+  <!-- Bundle Selection -->
+  <div class="sidebar-section">
+    <div class="section-title">Active Bundle</div>
+    <div class="bundle-selector">
+      <button class="bundle-btn active" data-bundle="A" onclick="setActiveBundle('A')">A</button>
+      <button class="bundle-btn" data-bundle="B" onclick="setActiveBundle('B')">B</button>
+      <button class="bundle-btn" data-bundle="C" onclick="setActiveBundle('C')">C</button>
+    </div>
+    
+    <!-- NEW: Offset Placement Mode -->
+    <div style="margin-top: 16px; padding: 12px; background: #f3f3f3; border-radius: 6px;">
+      <label style="display: flex; align-items: center; gap: 8px; margin-bottom: 12px; cursor: pointer;">
+        <input type="checkbox" id="offsetMode" onchange="toggleOffsetMode()" style="width: 16px; height: 16px; cursor: pointer;">
+        <span style="font-weight: 500; font-size: 13px;">Offset Placement Mode</span>
+      </label>
       
-      <div class="form-row" style="margin-top: 12px;">
-        <button class="btn btn-danger btn-sm btn-block" onclick="clearCurrent()">Clear Bundle</button>
-        <button class="btn btn-danger btn-sm btn-block" onclick="clearAll()">Clear All</button>
+      <div id="offsetControls" style="display: none;">
+        <div class="form-group" style="margin-bottom: 12px;">
+          <label class="form-label">Reference Bundle</label>
+          <select id="refBundle" class="form-control">
+            <option value="A">Bundle A</option>
+            <option value="B">Bundle B</option>
+            <option value="C">Bundle C</option>
+          </select>
+        </div>
+        
+        <div class="form-row" style="margin-bottom: 12px;">
+          <div class="form-group">
+            <label class="form-label">Distance</label>
+            <input id="offsetDist" type="number" step="0.1" value="5" class="form-control">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Angle (°)</label>
+            <input id="offsetAngle" type="number" step="1" value="0" class="form-control">
+          </div>
+        </div>
+        
+        <div style="font-size: 11px; color: var(--fg-secondary); font-style: italic; margin-bottom: 12px;">
+          📍 0° = Right, 90° = Up, 180° = Left, 270° = Down
+        </div>
+        
+        <button class="btn btn-primary btn-sm btn-block" onclick="applyOffsetPlacement()">
+          Apply Offset to All Points
+        </button>
       </div>
     </div>
+    
+    <div class="form-row" style="margin-top: 12px;">
+      <button class="btn btn-danger btn-sm btn-block" onclick="clearCurrent()">Clear Bundle</button>
+      <button class="btn btn-danger btn-sm btn-block" onclick="clearAll()">Clear All</button>
+    </div>
+  </div>
     
     <!-- Units & GMR -->
     <div class="sidebar-section">
@@ -1438,6 +1476,19 @@ window.addEventListener('keydown', (e) => {
     setTimeout(() => {
       display.style.opacity = '0';
     }, 2000);
+  }
+
+    if (e.key.toLowerCase() === 'o' && !e.ctrlKey && !e.altKey) {
+    document.getElementById('offsetMode').checked = !offsetMode;
+    toggleOffsetMode();
+  }
+  
+  // 'R' key to rotate offset angle by 90°
+  if (e.key.toLowerCase() === 'r' && offsetMode) {
+    const angleInput = document.getElementById('offsetAngle');
+    let currentAngle = parseFloat(angleInput.value) || 0;
+    angleInput.value = (currentAngle + 90) % 360;
+    redraw();
   }
 });
 
@@ -2153,20 +2204,30 @@ function redraw() {
     }
   }
   
+  drawGMDLines();
   drawPoints();
   drawSnapIndicator();
   drawPreviewLine();
+  drawOffsetPreview(); // MOVED HERE - before ctx.restore()
   
   // Restore the context state after drawing
   ctx.restore();
   
-  // Draw zoom level indicator
+  // Draw zoom level indicator (outside transformation)
   ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
   ctx.font = '12px Inter, sans-serif';
   ctx.fillText(`Zoom: ${(zoomLevel * 100).toFixed(0)}%`, 10, 20);
   ctx.fillText('Middle-click + drag to pan', 10, 40);
+  
+  // Show offset mode status (outside transformation)
+  if (offsetMode) {
+    ctx.fillStyle = 'rgba(142, 140, 216, 0.9)';
+    ctx.fillRect(10, 50, 180, 24);
+    ctx.fillStyle = 'white';
+    ctx.font = 'bold 12px Inter, sans-serif';
+    ctx.fillText('🎯 OFFSET MODE ACTIVE', 18, 67);
+  }
 }
-
 // ===== Animation =====
 function animatePointPlacement(x, y, color) {
   let r = 0;
@@ -3213,8 +3274,231 @@ document.getElementById('clearHistory').addEventListener('click', async () => {
   document.getElementById('historyList').innerHTML = '';
   await updateResults();
 });
+// ===== Offset Placement System =====
+let offsetMode = false;
 
+function toggleOffsetMode() {
+  offsetMode = document.getElementById('offsetMode').checked;
+  const controls = document.getElementById('offsetControls');
+  controls.style.display = offsetMode ? 'block' : 'none';
+  
+  if (offsetMode) {
+    // Set reference bundle to something other than active bundle
+    const refSelect = document.getElementById('refBundle');
+    const options = ['A', 'B', 'C'].filter(b => b !== activeBundle);
+    refSelect.value = options[0];
+    
+    // Show instruction
+    const display = document.getElementById('coordDisplay');
+    display.textContent = '🎯 Offset Mode Active • Configure distance and angle';
+    display.style.background = 'rgba(142, 140, 216, 0.9)';
+    display.style.opacity = '1';
+    
+    setTimeout(() => {
+      display.style.opacity = '0';
+    }, 3000);
+  }
+  
+  redraw();
+}
+
+async function applyOffsetPlacement() {
+  const refBundle = document.getElementById('refBundle').value;
+  const distance = parseFloat(document.getElementById('offsetDist').value);
+  const angleDeg = parseFloat(document.getElementById('offsetAngle').value);
+  
+  // Validation
+  if (!bundles[refBundle] || bundles[refBundle].length === 0) {
+    alert(`Bundle ${refBundle} has no points! Please add points to the reference bundle first.`);
+    return;
+  }
+  
+  if (!distance || distance <= 0) {
+    alert('Please enter a valid positive distance');
+    return;
+  }
+  
+  if (refBundle === activeBundle) {
+    alert('Reference bundle cannot be the same as active bundle!');
+    return;
+  }
+  
+  // Convert angle to radians
+  const angleRad = (angleDeg * Math.PI) / 180;
+  
+  // Calculate offset vector
+  const offsetX = distance * Math.cos(angleRad);
+  const offsetY = distance * Math.sin(angleRad);
+  
+  // Clear current bundle
+  await pywebview.api.clear_bundle(activeBundle);
+  bundles[activeBundle] = [];
+  
+  // Create offset points for each point in reference bundle
+  for (let [refX, refY] of bundles[refBundle]) {
+    const newX = refX + offsetX;
+    const newY = refY + offsetY;
+    
+    await pywebview.api.add_point(newX.toFixed(3), newY.toFixed(3), activeBundle);
+    bundles[activeBundle].push([newX, newY]);
+  }
+  
+  addHistoryItem('Offset Placement', 
+    `Bundle ${activeBundle} offset from ${refBundle} by ${distance} at ${angleDeg}°`);
+  
+  // Visual feedback
+  const display = document.getElementById('coordDisplay');
+  display.textContent = `✅ Created ${bundles[activeBundle].length} offset points`;
+  display.style.background = 'rgba(16, 124, 16, 0.9)';
+  display.style.opacity = '1';
+  
+  setTimeout(() => {
+    display.style.opacity = '0';
+  }, 3000);
+  
+  updateAllPoints();
+  redraw();
+  await updateResults();
+}
+
+function getBundleCenter(points) {
+  if (points.length === 0) return {x: 0, y: 0};
+  
+  let sumX = 0, sumY = 0;
+  points.forEach(([x, y]) => {
+    sumX += x;
+    sumY += y;
+  });
+  
+  return {
+    x: sumX / points.length,
+    y: sumY / points.length
+  };
+}
+// Visual preview for offset mode
+// Visual preview for offset mode
+function drawOffsetPreview() {
+  if (!offsetMode) return;
+  
+  const refBundle = document.getElementById('refBundle').value;
+  const distance = parseFloat(document.getElementById('offsetDist').value) || 0;
+  const angleDeg = parseFloat(document.getElementById('offsetAngle').value) || 0;
+  
+  if (!bundles[refBundle] || bundles[refBundle].length === 0) return;
+  if (refBundle === activeBundle) return;
+  
+  const angleRad = (angleDeg * Math.PI) / 180;
+  const offsetX = distance * Math.cos(angleRad);
+  const offsetY = distance * Math.sin(angleRad);
+  
+  // Save current state
+  const prevAlpha = ctx.globalAlpha;
+  const prevLineDash = ctx.getLineDash();
+  
+  // Draw preview points with proper styling
+  ctx.globalAlpha = 0.6;
+  ctx.fillStyle = colors[activeBundle];
+  ctx.strokeStyle = colors[activeBundle];
+  ctx.setLineDash([5, 5]);
+  ctx.lineWidth = 1.5;
+  
+  bundles[refBundle].forEach(([refX, refY], i) => {
+    const newX = refX + offsetX;
+    const newY = refY + offsetY;
+    
+    // Calculate canvas positions (already in world coordinates, just need scaling)
+    const refCanvasX = origin.x + refX * scaleX;
+    const refCanvasY = origin.y - refY * scaleY;
+    const newCanvasX = origin.x + newX * scaleX;
+    const newCanvasY = origin.y - newY * scaleY;
+    
+    // Draw offset line
+    ctx.beginPath();
+    ctx.moveTo(refCanvasX, refCanvasY);
+    ctx.lineTo(newCanvasX, newCanvasY);
+    ctx.stroke();
+    
+    // Draw preview point
+    ctx.globalAlpha = 0.7;
+    ctx.beginPath();
+    ctx.arc(newCanvasX, newCanvasY, 6, 0, 2 * Math.PI);
+    ctx.fill();
+    
+    // Draw small center dot
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = 'white';
+    ctx.beginPath();
+    ctx.arc(newCanvasX, newCanvasY, 2, 0, 2 * Math.PI);
+    ctx.fill();
+    ctx.fillStyle = colors[activeBundle];
+    ctx.globalAlpha = 0.6;
+    
+    // Draw distance label on first point only
+    if (i === 0) {
+      const midX = (refCanvasX + newCanvasX) / 2;
+      const midY = (refCanvasY + newCanvasY) / 2;
+      
+      // Background box
+      ctx.globalAlpha = 0.95;
+      ctx.fillStyle = 'rgba(142, 140, 216, 0.95)';
+      const boxWidth = 90;
+      const boxHeight = 26;
+      ctx.fillRect(midX - boxWidth/2, midY - boxHeight/2, boxWidth, boxHeight);
+      
+      // Border
+      ctx.strokeStyle = colors[activeBundle];
+      ctx.lineWidth = 1.5;
+      ctx.setLineDash([]);
+      ctx.strokeRect(midX - boxWidth/2, midY - boxHeight/2, boxWidth, boxHeight);
+      
+      // Text
+      ctx.globalAlpha = 1;
+      ctx.fillStyle = 'white';
+      ctx.font = 'bold 11px Consolas, Monaco, monospace';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(`${distance.toFixed(2)} @ ${angleDeg}°`, midX, midY);
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'alphabetic';
+      
+      // Reset for next iteration
+      ctx.setLineDash([5, 5]);
+      ctx.fillStyle = colors[activeBundle];
+      ctx.strokeStyle = colors[activeBundle];
+      ctx.globalAlpha = 0.6;
+    }
+  });
+  
+  // Restore previous state
+  ctx.globalAlpha = prevAlpha;
+  ctx.setLineDash(prevLineDash);
+  ctx.lineWidth = 1;
+}
 // ===== Initialize =====
+// Add live update for offset preview
+document.addEventListener('DOMContentLoaded', () => {
+  const offsetDist = document.getElementById('offsetDist');
+  const offsetAngle = document.getElementById('offsetAngle');
+  const refBundle = document.getElementById('refBundle');
+  
+  if (offsetDist) {
+    offsetDist.addEventListener('input', () => {
+      if (offsetMode) redraw();
+    });
+  }
+  
+  if (offsetAngle) {
+    offsetAngle.addEventListener('input', () => {
+      if (offsetMode) redraw();
+    });
+  }
+  
+  if (refBundle) {
+    refBundle.addEventListener('change', () => {
+      if (offsetMode) redraw();
+    });
+  }
+});
 redraw();
 </script>
 </body>

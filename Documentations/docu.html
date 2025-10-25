@@ -3,30 +3,34 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Transmission Line Calculator Docs</title>
+    <title>⚡ Transmission Line Calculator Docs</title>
     <style>
         /* --- Root Variables (Theming) --- */
         :root {
-            --bg-body: #f7f9fc;
+            --bg-body: #f8f9fa; /* Lighter gray */
             --bg-sidebar: #ffffff;
             --bg-content: #ffffff;
-            --bg-code: #2b2b2b;
-            --bg-code-header: #3a3a3a;
-            --bg-highlight: #fffbe6;
+            --bg-code: #282c34; /* One Dark Pro theme */
+            --bg-code-header: #3a3f4b;
+            --bg-highlight: #fff9e6; /* Lighter yellow */
             --bg-math: #f9faff;
-            
-            --text-primary: #2c3e50;
-            --text-secondary: #5a687b;
-            --text-header: #003a6c;
-            --text-code: #f1f1f1;
-            
-            --border-color: #dfe3e8;
-            --shadow-light: 0 4px 12px rgba(0,0,0,0.05);
-            --shadow-strong: 0 6px 16px rgba(0,0,0,0.08);
+            --bg-homepage-hero: linear-gradient(135deg, #0078d4 0%, #004a80 100%);
+
+            --text-primary: #343a40; /* Darker gray */
+            --text-secondary: #6c757d; /* Medium gray */
+            --text-header: #003a6c; /* Darker blue */
+            --text-code: #abb2bf; /* Light gray for code */
+            --text-link: #0078d4;
+            --text-link-hover: #005a9e;
+            --text-hero: #ffffff;
+
+            --border-color: #dee2e6; /* Lighter border */
+            --shadow-light: 0 4px 12px rgba(0,0,0,0.06);
+            --shadow-strong: 0 8px 24px rgba(0,0,0,0.08);
 
             --accent: #0078d4;
             --accent-hover: #005a9e;
-            --accent-active-bg: #e5f1fb;
+            --accent-active-bg: #e7f3ff; /* Lighter blue */
             --accent-active-border: #0078d4;
         }
         
@@ -42,7 +46,7 @@
         }
 
         body {
-            font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
             font-size: 16px;
             line-height: 1.7;
             background-color: var(--bg-body);
@@ -61,6 +65,7 @@
             border-right: 1px solid var(--border-color);
             overflow-y: auto;
             transition: width 0.3s ease;
+            z-index: 100;
         }
 
         .sidebar-header {
@@ -71,7 +76,7 @@
         .sidebar-header h1 {
             font-size: 20px;
             font-weight: 700;
-            color: var(--header);
+            color: var(--text-header);
             line-height: 1.3;
         }
         .sidebar-header h1 span {
@@ -92,48 +97,80 @@
         .sidebar-nav li {
             margin-bottom: 4px;
         }
-
-        .sidebar-nav a {
+        
+        /* Nav links are now buttons for JS control */
+        .sidebar-nav button.nav-link {
             text-decoration: none;
             color: var(--text-secondary);
             font-size: 14px;
             font-weight: 500;
             display: block;
+            width: 100%;
+            text-align: left;
             padding: 10px 16px;
             border-radius: 6px;
             transition: all 0.2s ease;
             border-left: 3px solid transparent;
+            background: none;
+            border: none;
+            cursor: pointer;
+            font-family: inherit;
         }
 
-        .sidebar-nav a:hover {
+        .sidebar-nav button.nav-link:hover {
             background-color: var(--bg-body);
             color: var(--text-primary);
         }
+        
+        /* Style for parent list items */
+         .sidebar-nav > ul > li > button.nav-link {
+            font-weight: 600;
+            color: var(--text-primary);
+        }
 
-        .sidebar-nav li.active > a {
+        .sidebar-nav li.active > button.nav-link {
             background-color: var(--accent-active-bg);
             color: var(--accent);
             font-weight: 600;
             border-left-color: var(--accent-active-border);
         }
         
-        .sidebar-nav .nav-h2 a {
+        .sidebar-nav .nav-h2 button.nav-link {
             padding-left: 32px;
             font-size: 13px;
         }
         
-        .sidebar-nav .nav-h3 a {
+        .sidebar-nav .nav-h3 button.nav-link {
             padding-left: 48px;
             font-size: 12px;
             font-weight: 400;
             color: #777;
         }
+        
+         .sidebar-nav .sub-menu {
+             padding-left: 15px; /* Indent sub-items */
+         }
+
 
         /* --- Main Content Area --- */
         .content {
             margin-left: 280px;
             flex: 1;
-            padding: 48px;
+            padding: 0; /* Remove padding for page structure */
+        }
+
+        /* --- Page Structure --- */
+        .doc-page {
+            display: none; /* Hide pages by default */
+            padding: 48px; /* Add padding inside each page */
+            animation: fadeIn 0.4s ease-in-out;
+        }
+        .doc-page.active {
+            display: block; /* Show active page */
+        }
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
         }
 
         .content-wrapper {
@@ -143,6 +180,7 @@
             border: 1px solid var(--border-color);
             border-radius: 8px;
             box-shadow: var(--shadow-light);
+            overflow: hidden; /* Contain sections */
         }
         
         .content section {
@@ -153,39 +191,136 @@
         .content section:last-child {
             border-bottom: none;
         }
+        
+         /* --- Homepage Specific Styles --- */
+        #page-home {
+            padding: 0; /* Remove padding for full-width hero */
+        }
+        .hero {
+            background: var(--bg-homepage-hero);
+            color: var(--text-hero);
+            padding: 80px 48px;
+            text-align: center;
+        }
+        .hero h1 {
+            font-size: 48px;
+            font-weight: 800;
+            margin-bottom: 16px;
+            color: var(--text-hero);
+            border-bottom: none;
+        }
+        .hero p {
+            font-size: 18px;
+            margin-bottom: 32px;
+            max-width: 700px;
+            margin-left: auto;
+            margin-right: auto;
+            opacity: 0.9;
+        }
+        .hero-buttons button {
+            background: rgba(255, 255, 255, 0.15);
+            color: white;
+            border: 1px solid rgba(255, 255, 255, 0.5);
+            padding: 12px 24px;
+            margin: 0 10px;
+            border-radius: 6px;
+            font-size: 16px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+         .hero-buttons button:hover {
+             background: rgba(255, 255, 255, 0.25);
+             border-color: white;
+         }
+         
+        .home-index {
+            padding: 48px;
+            max-width: 900px;
+            margin: 32px auto;
+            background: var(--bg-content);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            box-shadow: var(--shadow-light);
+        }
+        .home-index h2 {
+            text-align: center;
+            margin-bottom: 32px;
+            border-bottom: none;
+        }
+        .index-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 24px;
+        }
+        .index-card {
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            padding: 24px;
+            transition: all 0.2s ease;
+            background: #fff;
+        }
+         .index-card:hover {
+             box-shadow: var(--shadow-strong);
+             transform: translateY(-3px);
+         }
+        .index-card h3 {
+            margin-top: 0;
+            margin-bottom: 12px;
+            font-size: 18px;
+        }
+        .index-card p {
+            font-size: 14px;
+            color: var(--text-secondary);
+            margin-bottom: 16px;
+        }
+        .index-card button {
+            background: none;
+            border: none;
+            color: var(--text-link);
+            font-weight: 600;
+            font-size: 14px;
+            cursor: pointer;
+            padding: 0;
+        }
+        .index-card button:hover {
+            color: var(--text-link-hover);
+            text-decoration: underline;
+        }
 
+        /* --- Content Styling --- */
         h1, h2, h3, h4 {
             color: var(--text-header);
             margin-bottom: 20px;
             line-height: 1.3;
         }
         
-        h1 {
+        h1 { /* For page titles */
             font-size: 36px;
             font-weight: 800;
             padding-bottom: 12px;
             border-bottom: 1px solid var(--border-color);
         }
 
-        h2 {
+        h2 { /* For major sections within a page */
             font-size: 28px;
             font-weight: 700;
-            margin-top: 32px;
+            margin-top: 40px;
             padding-bottom: 8px;
             border-bottom: 1px solid var(--border-color);
         }
 
-        h3 {
+        h3 { /* For sub-sections */
             font-size: 22px;
             font-weight: 600;
-            margin-top: 24px;
+            margin-top: 32px;
         }
         
-        h4 {
+        h4 { /* For minor headings */
             font-size: 18px;
             font-weight: 600;
             color: var(--text-primary);
-            margin-top: 20px;
+            margin-top: 24px;
         }
 
         p {
@@ -201,39 +336,56 @@
             margin-bottom: 10px;
         }
 
-        /* --- Code & Formatting --- */
+        /* --- Code & Formatting Enhancements --- */
         code:not(pre code) {
             font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
             font-size: 0.9em;
-            background-color: #f0f4f8;
+            background-color: #e9ecef; /* Lighter background */
             padding: 3px 6px;
             border-radius: 4px;
-            color: #c7254e;
-            border: 1px solid var(--border-color);
+            color: #c7254e; /* Keep magenta */
+            border: 1px solid #ced4da; /* Subtle border */
         }
         
         .code-block-wrapper {
             position: relative;
-            margin-bottom: 16px;
+            margin-bottom: 24px; /* More space */
+            border-radius: 8px; /* Rounded wrapper */
+            overflow: hidden; /* Clip contents */
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
         }
 
         pre {
             background-color: var(--bg-code);
             color: var(--text-code);
-            padding: 20px;
-            padding-top: 16px;
-            border-radius: 6px;
+            padding: 24px; /* More padding */
+            padding-top: 48px; /* Space for button */
+            border-radius: 0 0 8px 8px; /* Only bottom rounding */
             overflow-x: auto;
             font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
             font-size: 14px;
-            line-height: 1.5;
+            line-height: 1.6; /* Better line spacing */
+            margin: 0; /* Reset margin */
         }
+        
+        /* Code block header */
+         .code-block-wrapper::before {
+             content: attr(data-lang); /* Show language if set */
+             display: block;
+             background: var(--bg-code-header);
+             padding: 8px 16px;
+             font-size: 12px;
+             font-weight: 500;
+             color: #ccc;
+             border-radius: 8px 8px 0 0;
+             text-transform: uppercase;
+         }
         
         .code-block-wrapper .copy-btn {
             position: absolute;
-            top: 10px;
-            right: 10px;
-            background: #4a4a4a;
+            top: 6px; /* Position within header */
+            right: 12px;
+            background: #4f5666; /* Slightly lighter */
             color: #f1f1f1;
             border: none;
             padding: 6px 10px;
@@ -241,7 +393,7 @@
             font-size: 12px;
             font-weight: 500;
             cursor: pointer;
-            opacity: 0.7;
+            opacity: 0.8;
             transition: all 0.2s ease;
         }
         
@@ -250,7 +402,7 @@
         }
         
         .copy-btn:hover {
-            background: #5a5a5a;
+            background: #6a738b;
         }
         
         .copy-btn.copied {
@@ -263,6 +415,7 @@
             border: 1px solid #ffe58f;
             border-radius: 5px;
             margin-bottom: 16px;
+            border-left: 4px solid #ffc107; /* Add accent border */
         }
         
         .highlight strong {
@@ -271,13 +424,14 @@
         
         img.math-formula {
             display: block;
-            max-width: 100%;
+            max-width: 90%; /* Don't stretch too wide */
             height: auto;
             background: var(--bg-math);
             padding: 24px;
             border-radius: 5px;
             border: 1px solid var(--border-color);
-            margin: 24px auto;
+            margin: 32px auto; /* More vertical space */
+            box-shadow: 0 2px 4px rgba(0,0,0,0.05);
         }
         
         .api-def {
@@ -286,6 +440,10 @@
             font-weight: 500;
             color: var(--text-primary);
             margin-bottom: 8px;
+            padding: 10px 15px;
+            background: #f8f9fa;
+            border: 1px solid #e9ecef;
+            border-radius: 4px;
         }
         
         .api-def strong {
@@ -294,7 +452,7 @@
         
         .api-def code {
             color: #005a9e;
-            background: #e5f1fb;
+            background: #e7f3ff;
             border: 1px solid #b3d6f2;
         }
 
@@ -305,37 +463,35 @@
     <aside class="sidebar" id="sidebar">
         <div class="sidebar-header">
             <h1>
-                GMRGMDTEST.py
-                <span>App Documentation</span>
+                ⚡ TransLine Calc
+                <span>Docs & Reference</span>
             </h1>
         </div>
         <nav class="sidebar-nav">
             <ul>
-                <li data-scroll-spy="overview"><a href="#overview">Overview</a></li>
-                <li data-scroll-spy="user-guide"><a href="#user-guide">User Guide</a>
-                    <ul>
-                        <li class="nav-h2" data-scroll-spy="guide-step1"><a href="#guide-step1">1. Setup Parameters</a></li>
-                        <li class="nav-h2" data-scroll-spy="guide-step2"><a href="#guide-step2">2. Place Conductors</a></li>
-                        <li class="nav-h2" data-scroll-spy="guide-step3"><a href="#guide-step3">3. Review Results</a></li>
-                        <li class="nav-h2" data-scroll-spy="guide-step4"><a href="#guide-step4">4. Export Solution</a></li>
+                <li data-scroll-spy="page-home" class="active"><button class="nav-link" data-page="page-home">🏠 Home</button></li>
+                <li data-scroll-spy="page-installation"><button class="nav-link" data-page="page-installation">🚀 Installation</button></li>
+                <li data-scroll-spy="page-gui-guide"><button class="nav-link" data-page="page-gui-guide">🖥️ GUI User Guide</button>
+                    <ul class="sub-menu">
+                        <li class="nav-h2" data-scroll-spy="gui-step1"><a href="#gui-step1">1. Setup</a></li>
+                        <li class="nav-h2" data-scroll-spy="gui-step2"><a href="#gui-step2">2. Placement</a></li>
+                        <li class="nav-h2" data-scroll-spy="gui-step3"><a href="#gui-step3">3. Results</a></li>
+                        <li class="nav-h2" data-scroll-spy="gui-step4"><a href="#gui-step4">4. Export</a></li>
                     </ul>
                 </li>
-                <li data-scroll-spy="api-reference"><a href="#api-reference">API Reference</a>
-                    <ul>
-                        <li class="nav-h2" data-scroll-spy="api-backend"><a href="#api-backend">Python Backend</a></li>
-                        <li class="nav-h3" data-scroll-spy="api-backend-class"><a href="#api-backend-class">GMDGMRApp</a></li>
-                        <li class="nav-h3" data-scroll-spy="api-backend-methods"><a href="#api-backend-methods">Backend Methods</a></li>
-                        <li class="nav-h2" data-scroll-spy="api-frontend"><a href="#api-frontend">JavaScript Frontend</a></li>
-                        <li class="nav-h3" data-scroll-spy="api-frontend-state"><a href="#api-frontend-state">Global State</a></li>
-                        <li class="nav-h3" data-scroll-spy="api-frontend-events"><a href="#api-frontend-events">Core Events</a></li>
-                        <li class="nav-h3" data-scroll-spy="api-frontend-drawing"><a href="#api-frontend-drawing">Drawing Loop</a></li>
+                 <li data-scroll-spy="page-library-usage"><button class="nav-link" data-page="page-library-usage">🐍 Library Usage (Py)</button></li>
+                <li data-scroll-spy="page-cli-usage"><button class="nav-link" data-page="page-cli-usage">⌨️ CLI Tool</button></li>
+                <li data-scroll-spy="page-api-reference"><button class="nav-link" data-page="page-api-reference">⚙️ API Reference</button>
+                    <ul class="sub-menu">
+                        <li class="nav-h2" data-scroll-spy="api-backend"><a href="#api-backend">Python</a></li>
+                        <li class="nav-h2" data-scroll-spy="api-frontend"><a href="#api-frontend">JavaScript</a></li>
                     </ul>
                 </li>
-                <li data-scroll-spy="math-hub"><a href="#math-hub">Mathematical Hub</a>
-                    <ul>
-                        <li class="nav-h2" data-scroll-spy="math-gmr"><a href="#math-gmr">GMR / Self GMD</a></li>
-                        <li class="nav-h2" data-scroll-spy="math-gmd"><a href="#math-gmd">GMD / Mutual GMD</a></li>
-                        <li class="nav-h2" data-scroll-spy="math-rlc"><a href="#math-rlc">Line Parameters (R, L, C)</a></li>
+                <li data-scroll-spy="page-math-hub"><button class="nav-link" data-page="page-math-hub">🧮 Mathematical Hub</button>
+                    <ul class="sub-menu">
+                        <li class="nav-h2" data-scroll-spy="math-gmr"><a href="#math-gmr">GMR</a></li>
+                        <li class="nav-h2" data-scroll-spy="math-gmd"><a href="#math-gmd">GMD</a></li>
+                        <li class="nav-h2" data-scroll-spy="math-rlc"><a href="#math-rlc">R, L, C</a></li>
                     </ul>
                 </li>
             </ul>
@@ -343,250 +499,504 @@
     </aside>
 
     <main class="content">
-        <div class="content-wrapper">
-
-            <section id="overview">
-                <h1>Transmission Line Calculator</h1>
-                <p>
-                    This application is a powerful, interactive desktop tool for calculating the electrical parameters of overhead transmission lines. It's designed for electrical engineering students and professionals who need to quickly model and analyze conductor configurations.
-                </p>
-                <p>
-                    By providing a visual canvas to place conductors and a real-time results panel, it bridges the gap between theoretical formulas and practical design. The entire application is a self-contained Python file (`GMRGMDTEST.py`) that runs a modern web-based UI in a native desktop window.
-                </p>
-                
-                <h3>Core Technologies</h3>
-                <ul>
-                    <li><strong>Python 3:</strong> The backbone of the application, performing all complex mathematical calculations and managing the application's state.</li>
-                    <li><strong><code>pywebview</code>:</strong> A lightweight cross-platform wrapper that serves the HTML/CSS/JS frontend and creates a two-way API bridge between Python and JavaScript.</li>
-                    <li><strong><code>numpy</code>:</strong> Used for high-performance numerical operations, especially Euclidean distance calculations.</li>
-                    <li><strong>HTML5 Canvas:</strong> Renders the interactive 2D grid, conductors, and real-time visual feedback (preview lines, snap halos).</li>
-                    <li><strong><code>google.generativeai</code>:</strong> Integrated to provide AI-powered, on-demand generation of detailed LaTeX solution documents.</li>
-                </ul>
-            </section>
-
-            <section id="user-guide">
-                <h1>User Guide</h1>
-                <p>The application interface features a 3-panel layout: **Controls (Left)**, **Canvas (Center)**, and **Results (Right)**. The workflow is designed to be intuitive, moving from left to right.</p>
-
-                <h2 id="guide-step1">Step 1: Setup Parameters (Left Panel)</h2>
-                <p>This is where you define the physical properties of your line.</p>
-                
-                <h4>Active Bundle</h4>
-                <p>Select which phase (Bundle A, B, or C) you are currently adding conductors for. This selection dictates where your clicks on the canvas will be registered.</p>
-                
-                <h4>Geometry Settings</h4>
-                <ul>
-                    <li><strong>Distance Units:</strong> Choose the unit (m, ft, inch, etc.) for all your inputs on the canvas and in the radius boxes. All calculations are automatically converted to meters on the backend.</li>
-                    <li><strong>Radius A/B/C (in Units):</strong> Enter the <em>physical radius</em> (r) of a single conductor for each bundle.</li>
-                    <li><strong>Apply Radii:</strong> Click this to commit the radii. The backend uses this to calculate the single-conductor GMR ($r'$) for each bundle.</li>
-                </ul>
-                
-                <h4>Line Parameters</h4>
-                <ul>
-                    <li><strong>Material:</strong> Select the conductor material (e.g., Copper, ACSR) to determine its resistivity ($\rho$) for resistance calculations.</li>
-                    <li><strong>Line Length (km):</strong> The total length of the transmission line.</li>
-                    <li><strong>Conductor Radius (m):</strong> The master physical radius in **meters**. This value is used for Resistance and Capacitance.</li>
-                    <li><strong>Calculate Parameters:</strong> Clicking this updates all backend parameters and **synchronizes the Radius A/B/C boxes** with the new master radius.</li>
-                </ul>
-                
-                <div class="highlight">
-                    <strong>Pro Tip:</strong> For simplicity, set the <strong>Conductor Radius (m)</strong> and click <strong>"Calculate Parameters"</strong> first. This will auto-fill the individual bundle radii for you.
+        
+        <div id="page-home" class="doc-page active">
+            <div class="hero">
+                <h1>⚡ Transmission Line Calculator</h1>
+                <p>A comprehensive toolset for engineers and students to calculate GMR, GMD, and RLC parameters for overhead transmission lines. Includes an interactive GUI, Python library, and CLI.</p>
+                <div class="hero-buttons">
+                    <button data-page-target="page-gui-guide">Get Started with GUI</button>
+                    <button data-page-target="page-library-usage">Use the Python Library</button>
                 </div>
-
-                <h2 id="guide-step2">Step 2: Place Conductors (Center Panel)</h2>
-                <p>The canvas is your interactive workspace. All your actions here apply to the "Active Bundle" selected in the left panel.</p>
-                
-                <h4>Controls & Hotkeys</h4>
-                <ul>
-                    <li><strong>Click:</strong> Place a conductor at your cursor's location.</li>
-                    <li><strong>Hold <code>Shift</code>:</strong> Constrains the "preview line" to perfect horizontal or vertical angles from your last-placed point.</li>
-                    <li><strong>Press <code>Tab</code>:</strong> Opens a dialog to place the next point with a precise <strong>Length</strong> and <strong>Angle</strong> from the last point.</li>
-                    <li><strong>Press <code>Esc</code>:</strong> Clears the "preview line" anchor, allowing you to start placing a new set of conductors.</li>
-                </ul>
-                
-                <h4>Visual Feedback</h4>
-                <ul>
-                    <li><strong>Coordinate Display:</strong> A real-time (x, y) coordinate tracker follows your mouse.</li>
-                    <li><strong>Preview Line:</strong> A dashed line shows the distance/angle from your last click to your current cursor position.</li>
-                    <li><strong>Snap Halo:</strong> A yellow circle appears when you hover near an existing point, allowing you to "snap" to it for perfect alignment.</li>
-                </ul>
-
-                <h2 id="guide-step3">Step 3: Review Results (Right Panel)</h2>
-                <p>This panel updates **in real-time** with every change you make (placing a point, changing a parameter, etc.).</p>
-                <ul>
-                    <li><strong>GMR ($D_s$):</strong> The calculated Geometric Mean Radius for each phase bundle.</li>
-                    <li><strong>GMD ($D_{eq}$):</strong> The Geometric Mean Distance between each pair of phases (A-B, B-C, A-C).</li>
-                    <li><strong>Line Parameters:</strong> A full breakdown of R, L, C (per km and total) and the line's reactances ($X_L$, $X_C$) at the specified frequency.</li>
-                </ul>
-                
-                <h2 id="guide-step4">Step 4: Export Solution (Left Panel)</h2>
-                <p>At the bottom of the Left Panel, you can generate a formal, multi-page report of your work.</p>
-                <ol>
-                    <li>Enter your Google Gemini API key.</li>
-                    <li>Click <strong>"Generate LaTeX Solution"</strong>. A loading modal will appear.</li>
-                    <li>A new modal will open, displaying the complete LaTeX code for your report.</li>
-                    <li>From this modal, you can:
-                        <ul>
-                            <li><strong>Copy to Clipboard:</strong> Copy the raw LaTeX code to use in your own editor.</li>
-                            <li><strong>Download .tex:</strong> Save the report as a `.tex` file.</li>
-                            <li><strong>Export as PDF:</strong> This button sends the LaTeX to the backend, which compiles it into a PDF and opens a "Save As..." dialog.</li>
-                        </ul>
-                    </li>
-                </ol>
-                <div class="highlight">
-                    <strong>PDF Export Requires LaTeX:</strong> To use the "Export as PDF" feature, you must have a LaTeX distribution (like <strong>TeX Live</strong> or <strong>MiKTeX</strong>) installed on your computer.
-                </div>
-            </section>
+            </div>
             
-            <section id="api-reference">
-                <h1>API Reference</h1>
-                <p>The application functions via a <code>pywebview</code> API bridge, allowing JavaScript to call Python functions and receive data in return.</p>
-                
-                <h2 id="api-backend">Python Backend API</h2>
-                <p>The <code>GMDGMRApp</code> class in Python holds the application state and exposes methods to the JavaScript frontend.</p>
-                
-                <h3 id="api-backend-class">Class: GMDGMRApp</h3>
-                <p>This class is instantiated once and serves as the single source of truth for all calculations. All coordinates and parameters are stored as attributes of this class instance.</p>
-                
-                <h3 id="api-backend-methods">Backend Methods</h3>
-                <p>These functions are called from JavaScript via <code>await pywebview.api.function_name(...)</code>.</p>
-                
-                <p class="api-def">set_unit(<strong>u: str</strong>) &rarr; <code>str</code></p>
-                <p>Sets the active unit for canvas inputs (e.g., 'm', 'ft').</p>
-                
-                <p class="api-def">set_gmr(<strong>bundle: str, val: float</strong>) &rarr; <code>str</code></p>
-                <p>Converts the provided <strong>physical radius</strong> <code>val</code> from the current unit to meters, calculates its GMR ($r' = \text{val_meters} \times 0.7788$), and stores it.</p>
-                
-                <p class="api-def">set_line_params(<strong>material: str, length: float, radius: float, freq: float</strong>) &rarr; <code>str</code></p>
-                <p>Updates all core line parameters. <code>radius</code> is the master radius in **meters**. This function also syncs all individual bundle GMRs ($r'$) based on this new radius.</p>
-                
-                <p class="api-def">add_point(<strong>x: float, y: float, bundle: str</strong>) &rarr; <code>str</code></p>
-                <p>The primary data entry function. It takes the <code>x</code>, <code>y</code> coordinates (in user units), converts them to **meters**, and appends them to the correct list in `self.bundles`.</p>
-                
-                <p class="api-def">clear_bundle(<strong>bundle: str</strong>) &rarr; <code>str</code></p>
-                <p>Empties the coordinate list for the specified bundle (e.g., `self.bundles['A'] = []`).</p>
-                
-                <p class="api-def">clear_all() &rarr; <code>str</code></p>
-                <p>Empties the coordinate lists for all bundles.</p>
-                
-                <p class="api-def">compute_results() &rarr; <code>dict</code></p>
-                <p>The main calculation engine. Gathers all current state data, performs all `compute_gmr` and `compute_gmd` calls, calculates R, L, and C, and returns all results in a single JSON dictionary.</p>
-                
-                <p class="api-def">export_latex_solution(<strong>api_key: str</strong>) &rarr; <code>str</code></p>
-                <p>Builds a comprehensive prompt for the Gemini AI, including all inputs and results, and returns the AI-generated LaTeX document as a string.</p>
-                
-                <p class="api-def">generate_pdf_from_latex(<strong>latex_content: str</strong>) &rarr; <code>dict</code></p>
-                <p>Uses a `subprocess` to call `pdflatex` on the system, compiling the provided LaTeX string into a PDF and prompting the user to save it.</p>
-
-                <h2 id="api-frontend">JavaScript Frontend API</h2>
-                <p>The frontend JavaScript orchestrates the UI, captures all user events, and acts as the client for the Python API.</p>
-                
-                <h3 id="api-frontend-state">Global State Variables</h3>
-                <ul>
-                    <li><code>bundles = {A: [], B: [], C: []}</code>: A JavaScript *mirror* of the Python coordinates. This is used for all high-frequency drawing operations on the canvas to avoid slow API calls.</li>
-                    <li><code>activeBundle = 'A'</code>: The currently selected bundle (A, B, or C).</li>
-                    <li><code>lastPlacedPoint = null</code>: The *canvas pixel* `{x, y}` coordinate of the last click. This is the anchor for drawing preview lines and TAB-based placement.</li>
-                    <li><code>shiftKeyPressed = false</code>: A boolean flag updated by global key listeners.</li>
-                </ul>
-
-                <h3 id="api-frontend-events">Core Event Handlers</h3>
-                
-                <div class="code-block-wrapper">
-                    <button class="copy-btn">Copy</button>
-<pre><code>canvas.addEventListener('mousemove', (e) => {
-    // 1. Calculate mouse (x,y) coordinates
-    // 2. Update coordDisplay text
-    // 3. Find nearest snap point via findSnapPoint()
-    // 4. Call redraw()
-});</code></pre>
+            <div class="home-index">
+                <h2>Quick Index 🧭</h2>
+                <div class="index-grid">
+                    <div class="index-card">
+                        <h3>🚀 Installation</h3>
+                        <p>Set up the environment and install dependencies.</p>
+                        <button data-page-target="page-installation">Go to Installation →</button>
+                    </div>
+                    <div class="index-card">
+                        <h3>🖥️ GUI Guide</h3>
+                        <p>Learn how to use the interactive graphical application.</p>
+                        <button data-page-target="page-gui-guide">Read the Guide →</button>
+                    </div>
+                    <div class="index-card">
+                        <h3>🐍 Library Usage</h3>
+                        <p>Integrate the calculator logic into your Python scripts.</p>
+                        <button data-page-target="page-library-usage">See Python Examples →</button>
+                    </div>
+                     <div class="index-card">
+                        <h3>⌨️ CLI Tool</h3>
+                        <p>Perform quick calculations directly from your terminal.</p>
+                        <button data-page-target="page-cli-usage">View CLI Commands →</button>
+                    </div>
+                     <div class="index-card">
+                        <h3>⚙️ API Reference</h3>
+                        <p>Detailed reference for Python and JavaScript functions.</p>
+                        <button data-page-target="page-api-reference">Explore the API →</button>
+                    </div>
+                    <div class="index-card">
+                        <h3>🧮 Math Hub</h3>
+                        <p>Understand the core formulas behind the calculations.</p>
+                        <button data-page-target="page-math-hub">Review the Math →</button>
+                    </div>
                 </div>
-                
-                <div class="code-block-wrapper">
-                    <button class="copy-btn">Copy</button>
-<pre><code>canvas.addEventListener('click', async (e) => {
-    // 1. Determine final (x,y) from click/snap/shift
-    // 2. await pywebview.api.add_point(x, y, activeBundle);
-    // 3. bundles[activeBundle].push([x, y]);
-    // 4. set lastPlacedPoint = {pixelX, pixelY};
-    // 5. await updateResults();
-});</code></pre>
-                </div>
-                
-                <p class="api-def">updateResults()</p>
-                <p>This async function is the heart of the UI-backend sync. It calls <code>await pywebview.api.compute_results()</code> and then uses the returned JSON to build an HTML string and inject it into the `div#results` panel.</p>
-
-                <h3 id="api-frontend-drawing">The Drawing Loop</h3>
-                
-                <p class="api-def">redraw()</p>
-                <p>The master drawing function called on every mouse move and click. It executes in a specific order to ensure correct layering:</p>
-                <ol>
-                    <li><code>ctx.clearRect()</code>: Wipes the entire canvas.</li>
-                    <li><code>drawGrid()</code>: Draws the background grid and axes.</li>
-                    <li><code>drawBundleCircle()</code> / <code>drawBundleConnections()</code>: Draws the visual lines *within* each bundle.</li>
-                    <li><code>drawPoints()</code>: Draws the conductor points and their labels (e.g., "A1", "A2").</li>
-                    <li><code>drawSnapIndicator()</code>: Draws the yellow snap halo if `snapPoint` is active.</li>
-                    <li><code>drawPreviewLine()</code>: Draws the dashed preview line from `lastPlacedPoint` to the cursor.</li>
-                </ol>
-
-            </section>
-            
-            <section id="math-hub">
-                <h1>Mathematical Hub</h1>
-                <p>This section details the core formulas used by the <code>GMRGMDTEST.py</code> backend to perform the calculations.</p>
-                
-                <h2 id="math-gmr">GMR / Self GMD ($D_s$)</h2>
-                <p>The <strong>Geometric Mean Radius (GMR)</strong>, also known as Self GMD, represents the equivalent radius of a conductor or bundle. It is a hypothetical radius that accounts for the conductor's internal magnetic flux.</p>
-                
-                <h4>Single Solid Conductor</h4>
-                <p>For a single, solid cylindrical conductor, the GMR is a fixed fraction of its physical radius (r):</p>
-                <img class="math-formula" src="https://latex.codecogs.com/svg.png?D_s = r' = r \times e^{-1/4} \approx r \times 0.7788" alt="GMR of single conductor">
-                
-                <h4>Bundled Conductors (n > 1)</h4>
-                <p>For a bundle of <i>n</i> conductors, the GMR is the $n^2$-th root of the product of $n^2$ distances. These distances are the $n$ GMRs of the individual conductors (r') and the $n(n-1)$ distances between all pairs of conductors (counted twice).</p>
-                <p>Assuming all conductors have the same $r'$, this simplifies to the formula used in the code:</p>
-                <img class="math-formula" src="https://latex.codecogs.com/svg.png?D_s = \sqrt[n^2]{(r')^n \times (D_{12}D_{13}...D_{n-1,n})^2}" alt="Simplified GMR formula">
-                
-                <h4>Example (n=2 conductors):</h4>
-                <img class="math-formula" src="https://latex.codecogs.com/svg.png?D_s = \sqrt[4]{(r')^2 \times (D_{12})^2} = \sqrt{r' \times D_{12}}" alt="GMR for n=2">
-
-                <h4>Example (n=3 conductors, e.g., triangle):</h4>
-                <img class="math-formula" src="https://latex.codecogs.com/svg.png?D_s = \sqrt[9]{(r')^3 \times (D_{12} \cdot D_{13} \cdot D_{23})^2}" alt="GMR for n=3">
-                
-                <h2 id="math-gmd">GMD / Mutual GMD ($D_{eq}$)</h2>
-                <p>The <strong>Geometric Mean Distance (GMD)</strong>, or Mutual GMD, represents the equivalent distance between two separate phase bundles (e.g., between Phase A and Phase B).</p>
-                <p>If Bundle A has <i>m</i> conductors and Bundle B has <i>n</i> conductors, there are $m \times n$ total distances between them. The GMD is the ($mn$)-th root of the product of all these distances.</p>
-                <img class="math-formula" src="https://latex.codecogs.com/svg.png?D_{AB} = \sqrt[mn]{\prod_{i=1}^{m} \prod_{j=1}^{n} D_{a_i b_j}}" alt="General GMD formula">
-                
-                <p>For a 3-phase system, this is calculated for $D_{AB}$, $D_{BC}$, and $D_{AC}$. The equivalent GMD for the whole system is the geometric mean of these three values:</p>
-                <img class="math-formula" src="https://latex.codecogs.com/svg.png?D_{eq} = \sqrt[3]{D_{AB} \cdot D_{BC} \cdot D_{AC}}" alt="Equivalent GMD">
-                
-                <h2 id="math-rlc">Line Parameters (R, L, C)</h2>
-                <p>Once $D_s$ (avg. GMR) and $D_{eq}$ (avg. GMD) are known, the line parameters are calculated.</p>
-                
-                <h4>Resistance (R)</h4>
-                <p>Resistance is calculated based on material resistivity ($\rho$), length ($L_{km}$), cross-sectional area ($A = \pi r^2$), and the number of conductors in the bundle ($N$).</p>
-                <img class="math-formula" src="https://latex.codecogs.com/svg.png?R_{\text{per\_km}} = \frac{\rho \times 1000}{A \times N_{\text{bundle}}} \; (\Omega / \text{km})" alt="Resistance formula">
-                
-                <h4>Inductance (L)</h4>
-                <p>Inductance depends on the ratio of GMD to GMR.</p>
-                <img class="math-formula" src="https://latex.codecogs.com/svg.png?L_{\text{per\_km}} = \left( 2 \times 10^{-7} \ln\left(\frac{D_{eq}}{D_s}\right) \right) \times 1000 \; (\text{mH} / \text{km})" alt="Inductance formula">
-                <p>Total Inductive Reactance is then $X_L = 2 \pi f L_{\text{total}}$.</p>
-                
-                <h4>Capacitance (C)</h4>
-                <p>Capacitance is similar, but it uses the <strong>equivalent bundle radius ($r_b$)</strong> instead of GMR. $r_b$ is calculated using the same GMR formula, but with the physical radius $r$ instead of $r'$.</p>
-                <img class="math-formula" src="https://latex.codecogs.com/svg.png?C_{\text{per\_km}} = \left( \frac{2 \pi \epsilon_0}{\ln\left(\frac{D_{eq}}{r_b}\right)} \right) \times 10^9 \; (\text{nF} / \text{km})" alt="Capacitance formula">
-                <p>Where $\epsilon_0 = 8.854 \times 10^{-12} \text{ F/m}$. Total Capacitive Reactance is $X_C = \frac{1}{2 \pi f C_{\text{total}}}$.</p>
-            </section>
+            </div>
         </div>
+
+        <div id="page-installation" class="doc-page">
+            <div class="content-wrapper">
+                <section id="installation">
+                    <h1>🚀 Installation</h1>
+                    <p>Ensure you have Python 3 (3.7+) and pip installed on your system.</p>
+                    <ol>
+                        <li>
+                            <strong>Get the Code:</strong> Clone the repository or download the source files.
+                            <div class="code-block-wrapper" data-lang="bash">
+                                <button class="copy-btn">Copy</button>
+<pre><code>git clone [your-repo-url]
+cd [your-repo-folder]</code></pre>
+                            </div>
+                        </li>
+                        <li>
+                            <strong>Install Dependencies:</strong> Navigate to the project directory and install the required Python packages from `requirements.txt`.
+                            <div class="code-block-wrapper" data-lang="bash">
+                                <button class="copy-btn">Copy</button>
+<pre><code>pip install -r requirements.txt</code></pre>
+                            </div>
+                             <p>This typically includes `numpy`, `pywebview`, `google-generativeai`, etc.</p>
+                        </li>
+                        <li>
+                            <strong>Library Setup:</strong> To use the calculator as a Python library, ensure the main script (`GMRGMDTEST.py` or the `transmission_line_calculator` directory) is accessible in your Python path. You can either:
+                            <ul>
+                                <li>Place it directly in your project folder.</li>
+                                <li>Install it into your Python environment's `site-packages` (if setup for installation, e.g., using `pip install .`).</li>
+                            </ul>
+                        </li>
+                        <li>
+                            <strong>GUI Application:</strong> To run the graphical application, simply execute the main Python script:
+                            <div class="code-block-wrapper" data-lang="bash">
+                                <button class="copy-btn">Copy</button>
+<pre><code>python GMRGMDTEST.py</code></pre>
+                            </div>
+                        </li>
+                         <li>
+                            <strong>CLI Tool:</strong> The command-line tool might require separate installation or setup (like `pip install .` or adding the script to your system PATH). Please refer to the specific setup instructions for the CLI component.
+                        </li>
+                        <li>
+                            <strong>LaTeX Requirement (for PDF Export):</strong> If you plan to use the "Export as PDF" feature in the GUI, you need a working LaTeX distribution installed (e.g., TeX Live, MiKTeX, MacTeX) with `pdflatex` available in your system's PATH. 📑
+                        </li>
+                    </ol>
+                </section>
+            </div>
+        </div>
+        
+        <div id="page-gui-guide" class="doc-page">
+            <div class="content-wrapper">
+                <section id="gui-guide">
+                    <h1>🖥️ GUI User Guide</h1>
+                    <p>The graphical application (`GMRGMDTEST.py`) provides an intuitive visual interface. It features a 3-panel layout: **Controls (Left)**, **Canvas (Center)**, and **Results (Right)**.</p>
+
+                    <h2 id="gui-step1">Step 1: Setup Parameters (Left Panel) ⚙️</h2>
+                    <p>Define the physical properties of your transmission line here.</p>
+                    
+                    <h4>Active Bundle</h4>
+                    <p>Select the phase (Bundle A 🔴, B 🔵, or C 🟢) you want to add conductors to. Your clicks on the canvas will affect this bundle.</p>
+                    
+                    <h4>Geometry Settings</h4>
+                    <ul>
+                        <li><strong>Distance Units:</strong> Choose your preferred unit for inputs (m, ft, inch, cm, mm). All calculations are done in meters internally. 📐</li>
+                        <li><strong>Radius A/B/C (in Units):</strong> Enter the <em>physical radius</em> (r) of a single conductor for each bundle.</li>
+                        <li><strong>Apply Radii:</strong> Confirms these radii. The backend calculates the GMR ($r'$) for each.</li>
+                    </ul>
+                    
+                    <h4>Line Parameters</h4>
+                    <ul>
+                        <li><strong>Material:</strong> Select conductor material (Copper, ACSR, etc.) for resistivity ($\rho$). 🧱</li>
+                        <li><strong>Line Length (km):</strong> Total length of the line. 📏</li>
+                        <li><strong>Conductor Radius (m):</strong> The *master* physical radius in **meters**, used for R & C calculations.</li>
+                        <li><strong>Frequency (Hz):</strong> System frequency (e.g., 60 Hz). ⚡</li>
+                        <li><strong>Calculate Parameters:</strong> Updates all parameters and syncs the Radius A/B/C boxes with the master radius. ✨</li>
+                    </ul>
+                    
+                    <div class="highlight">
+                        <strong>💡 Tip:</strong> Set the main <strong>Conductor Radius (m)</strong> and click <strong>"Calculate Parameters"</strong> first to auto-fill the individual bundle radii.
+                    </div>
+
+                    <h2 id="gui-step2">Step 2: Place Conductors (Center Panel) 🖱️</h2>
+                    <p>This is your interactive workspace for laying out the conductors.</p>
+                    
+                    <h4>Controls & Hotkeys</h4>
+                    <ul>
+                        <li><strong>Click:</strong> Place a conductor for the active bundle.</li>
+                        <li><strong>Hold <code>Shift</code>:</strong> Constrains placement to 90° angles from the last point.</li>
+                        <li><strong>Press <code>Tab</code>:</strong> Opens a dialog to place the next point via precise Length & Angle. 🎯</li>
+                        <li><strong>Press <code>Esc</code>:</strong> Clears the anchor point for preview lines.</li>
+                    </ul>
+                    
+                    <h4>Visual Feedback</h4>
+                    <ul>
+                        <li><strong>Coordinate Display:</strong> Real-time (x, y) coordinates follow your mouse.</li>
+                        <li><strong>Preview Line:</strong> Dashed line shows distance/angle from the last click.</li>
+                        <li><strong>Snap Halo:</strong> Yellow circle appears when near an existing point for easy alignment. 🟡</li>
+                    </ul>
+
+                    <h2 id="gui-step3">Step 3: Review Results (Right Panel) 📊</h2>
+                    <p>This panel updates **instantly** with every action, showing the calculated parameters.</p>
+                    <ul>
+                        <li><strong>GMR ($D_s$):</strong> Geometric Mean Radius for each active bundle.</li>
+                        <li><strong>GMD ($D_{eq}$):</strong> Geometric Mean Distance between phase pairs.</li>
+                        <li><strong>R, L, C Parameters:</strong> Full breakdown per km and total, plus reactances ($X_L$, $X_C$).</li>
+                    </ul>
+                    
+                    <h2 id="gui-step4">Step 4: Export Solution (Left Panel) 📄</h2>
+                    <p>Generate a professional report of your configuration and results.</p>
+                    <ol>
+                        <li>Enter your Google Gemini API key. 🔑</li>
+                        <li>Click <strong>"Generate LaTeX Solution"</strong>. Wait for the loading spinner. ⏳</li>
+                        <li>A modal displays the generated LaTeX code.</li>
+                        <li>From the modal, choose:
+                            <ul>
+                                <li><strong>Copy to Clipboard:</strong> Copy the LaTeX code.</li>
+                                <li><strong>Download .tex:</strong> Save as a `.tex` file.</li>
+                                <li><strong>Export as PDF:</strong> Compile the LaTeX into a PDF and save it (requires LaTeX installed). ✅</li>
+                            </ul>
+                        </li>
+                    </ol>
+                    <div class="highlight">
+                        <strong>⚠️ Prerequisite:</strong> The "Export as PDF" button requires a local LaTeX installation (TeX Live, MiKTeX, etc.).
+                    </div>
+                </section>
+            </div>
+         </div>
+         
+        <div id="page-library-usage" class="doc-page">
+             <div class="content-wrapper">
+                 <section id="library-usage">
+                     <h1>🐍 Library Usage (Python)</h1>
+                     <p>You can leverage the calculator's engine directly within your Python scripts for automation or integration into larger projects.</p>
+                     
+                     <h4>Importing</h4>
+                     <p>First, import the main class. Ensure the script or package is in your Python path.</p>
+                     <div class="code-block-wrapper" data-lang="python">
+                         <button class="copy-btn">Copy</button>
+<pre><code># If using the single GMRGMDTEST.py file:
+from GMRGMDTEST import GMDGMRApp 
+# Or, if it's structured as a package:
+# from transmission_line_calculator import TransmissionLineCalculator 
+import pprint</code></pre>
+                     </div>
+
+                    <h4>Initialization & Setup</h4>
+                     <div class="code-block-wrapper" data-lang="python">
+                         <button class="copy-btn">Copy</button>
+<pre><code># 1. Initialize the calculator
+# Use the actual class name from your file (e.g., GMDGMRApp)
+calc = GMDGMRApp() 
+
+# 2. Set core line parameters
+calc.set_line_params(
+    material="ACSR",          # Conductor material
+    length_km=150.0,          # Line length in km
+    conductor_radius_m=0.015, # Master physical radius in meters
+    freq_hz=60.0              # System frequency in Hz
+)
+
+# 3. Set the unit for subsequent coordinate/radius inputs
+calc.set_unit("m") # e.g., using meters
+
+# 4. Set the PHYSICAL RADIUS for GMR calculations (in the current unit)
+# The library handles the r' = r * 0.7788 calculation internally.
+conductor_radius_unit = 0.015 # Radius in 'm' for this example
+calc.set_gmr("A", conductor_radius_unit)
+calc.set_gmr("B", conductor_radius_unit)
+calc.set_gmr("C", conductor_radius_unit)</code></pre>
+                     </div>
+                     
+                     <h4>Adding Conductors & Calculating</h4>
+                     <div class="code-block-wrapper" data-lang="python">
+                         <button class="copy-btn">Copy</button>
+<pre><code># 5. Add conductor coordinates (in the current unit 'm')
+# Example: Simple horizontal line
+calc.add_point(x=-5, y=10, bundle="A")
+calc.add_point(x=0,  y=10, bundle="B")
+calc.add_point(x=5,  y=10, bundle="C")
+
+# 6. Compute the results
+results = calc.compute_results()
+
+# 7. Access the results dictionary
+print("--- Single Conductor Results ---")
+pprint.pprint(results['params']) 
+# Access other parts like results['gmr'] or results['gmd']
+
+# Example: Clearing and adding bundled conductors in Feet
+calc.clear_all() 
+calc.set_unit("ft") 
+conductor_radius_ft = 0.05 # Physical radius in ft
+calc.set_gmr("A", conductor_radius_ft) # Update GMR radius for all
+calc.set_gmr("B", conductor_radius_ft)
+calc.set_gmr("C", conductor_radius_ft)
+
+# Add coordinates in feet
+calc.add_point(x=-20, y=30,   bundle="A") # A1
+calc.add_point(x=-20, y=31.5, bundle="A") # A2
+calc.add_point(x=0,   y=30,   bundle="B") # B1
+# ... add other points ...
+
+bundled_results = calc.compute_results()
+print("\n--- Bundled Results ---")
+pprint.pprint(bundled_results['params'])</code></pre>
+                     </div>
+                 </section>
+             </div>
+         </div>
+         
+        <div id="page-cli-usage" class="doc-page">
+             <div class="content-wrapper">
+                 <section id="cli-usage">
+                    <h1>⌨️ Command Line Tool (CLI)</h1>
+                    <p>
+                        For quick calculations without the GUI, a command-line interface is available. It allows you to specify all parameters and conductor locations via terminal arguments.
+                    </p>
+                    <div class="highlight">
+                         <strong>Note:</strong> The exact command name (e.g., `tlc`, `transline-calc`) and argument syntax depend on how the CLI tool is packaged and installed. These examples assume a command named `tlc`.
+                    </div>
+
+                    <h3>Basic Usage</h3>
+                    <p>Provide line parameters, units, coordinates, and the radius for GMR calculation as command-line options.</p>
+                    
+                    <h4>Example 1: Simple Horizontal Line</h4>
+                    <p>Calculate for a 150km ACSR line with 0.015m radius conductors spaced 5m apart horizontally, using meters for input.</p>
+                    <div class="code-block-wrapper" data-lang="bash">
+                        <button class="copy-btn">Copy</button>
+<pre><code>tlc --length 150 --radius 0.015 --material ACSR --unit m \
+    --pa -5,10 \
+    --pb 0,10 \
+    --pc 5,10 \
+    --gmr-radius 0.015 # Use 0.015m radius to calculate r'
+</code></pre>
+                    </div>
+                    
+                    <h4>Example 2: Bundled Conductors</h4>
+                    <p>Calculate for the same line but with 2-conductor bundles (0.05 ft radius each) spaced 1.5 ft vertically, using feet for input.</p>
+                    <div class="code-block-wrapper" data-lang="bash">
+                        <button class="copy-btn">Copy</button>
+<pre><code class="language-bash"># The syntax for multiple points per phase (--pa, --pb, --pc) 
+# depends on the CLI implementation. Semicolon separation is one possibility.
+tlc --length 150 --radius 0.015 --material ACSR --unit ft \
+    --pa "-20,30;-20,31.5" \
+    --pb "0,30;0,31.5" \
+    --pc "20,30;20,31.5" \
+    --gmr-radius 0.05 # Use 0.05ft radius to calculate r'
+</code></pre>
+                    </div>
+
+                    <h3>Getting Help</h3>
+                    <p>To see all available options and their specific syntax, use the help flag:</p>
+                     <div class="code-block-wrapper" data-lang="bash">
+                        <button class="copy-btn">Copy</button>
+<pre><code>tlc --help</code></pre>
+                    </div>
+                </section>
+            </div>
+        </div>
+        
+        <div id="page-api-reference" class="doc-page">
+            <div class="content-wrapper">
+                 <section id="api-reference">
+                     <h1>⚙️ API Reference</h1>
+                     {/* ... (Keep API details from previous version, perhaps enhance formatting) ... */}
+                       <p>The application runs on a two-way API bridge provided by `pywebview`. JavaScript calls Python functions, and Python returns data.</p>
+                
+                    <h2 id="api-backend">Python Backend API</h2>
+                    <p>The backend logic is encapsulated in the `GMDGMRApp` class in `GMRGMDTEST.py`. An instance of this class is exposed to JavaScript as `pywebview.api`.</p>
+                    
+                    <h3 id="api-backend-class">Class: GMDGMRApp</h3>
+                    <p>Manages the entire application state and performs all calculations.</p>
+                    
+                    <h4 id="api-backend-methods">Backend Methods (Called from JavaScript)</h4>
+                    
+                    <p class="api-def">set_unit(<strong>u: str</strong>) &rarr; <code>str</code></p>
+                    <p>Sets the active unit for canvas inputs. Called by the "Distance Units" dropdown.</p>
+
+                    <p class="api-def">set_gmr(<strong>bundle: str, val: float</strong>) &rarr; <code>str</code></p>
+                    <p>Takes the <strong>physical radius</strong> <code>val</code> (in current units), converts it to meters, calculates $r' = \text{val_meters} \times 0.7788$, and stores it in `self.r_self[bundle]`.</p>
+                    
+                    <p class="api-def">set_line_params(<strong>material: str, length: float, radius: float, freq: float</strong>) &rarr; <code>str</code></p>
+                    <p>Updates the core line parameters. <code>radius</code> must be in **meters**. This function also automatically updates all `self.r_self` values based on this new master radius.</p>
+                    
+                    <p class="api-def">add_point(<strong>x: float, y: float, bundle: str</strong>) &rarr; <code>str</code></p>
+                    <p>Adds a new conductor. Takes <code>x</code> and <code>y</code> coordinates (in current units), converts them to **meters**, and appends the `(x_m, y_m)` tuple to `self.bundles[bundle]`.</p>
+                    
+                    <p class="api-def">clear_bundle(<strong>bundle: str</strong>) &rarr; <code>str</code></p>
+                    <p>Clears the coordinate list for the specified bundle.</p>
+                    
+                    <p class="api-def">clear_all() &rarr; <code>str</code></p>
+                    <p>Clears coordinate lists for all bundles.</p>
+                    
+                    <p class="api-def">compute_results() &rarr; <code>dict</code></p>
+                    <p>The main calculation engine. It uses the current state (bundles, radii, etc.) to compute all GMR, GMD, and RLC values and returns them as a JSON-serializable dictionary.</p>
+                    
+                    <p class="api-def">export_latex_solution(<strong>api_key: str</strong>) &rarr; <code>str</code></p>
+                    <p>Builds a detailed prompt containing all user inputs and calculation results, sends it to the Gemini API, and returns the generated LaTeX string.</p>
+                    
+                    <p class="api-def">generate_pdf_from_latex(<strong>latex_content: str</strong>) &rarr; <code>dict</code></p>
+                    <p>Receives a string of LaTeX code. It writes this to a temporary `.tex` file, runs the `pdflatex` command-line tool, and prompts the user to save the resulting PDF.</p>
+
+                    <h2 id="api-frontend">JavaScript Frontend API</h2>
+                    <p>The frontend JavaScript acts as the "controller" for the UI. It captures user events, calls the Python API, and then displays the results.</p>
+                    
+                    <h3 id="api-frontend-state">Global State</h3>
+                    <ul>
+                        <li><code>bundles = {A: [], B: [], C: []}</code>: A JavaScript *mirror* of the Python `self.bundles`. Used for instant canvas redrawing.</li>
+                        <li><code>activeBundle = 'A'</code>: The currently selected bundle (A, B, or C).</li>
+                        <li><code>lastPlacedPoint = null</code>: The *canvas pixel* `{x, y}` coordinate of the last click. Used as an anchor for previews and TAB placement.</li>
+                        <li><code>shiftKeyPressed = false</code>: Boolean flag set by key listeners.</li>
+                    </ul>
+
+                    <h3 id="api-frontend-events">Core Event Listeners</h3>
+                    
+                    <div class="code-block-wrapper" data-lang="javascript">
+                        <button class="copy-btn">Copy</button>
+<pre><code>canvas.addEventListener('mousemove', (e) => {
+    // Updates coordinate display, finds snap points, triggers redraw()
+});</code></pre>
+                    </div>
+                    
+                    <div class="code-block-wrapper" data-lang="javascript">
+                        <button class="copy-btn">Copy</button>
+<pre><code>canvas.addEventListener('click', async (e) => {
+    // Determines coords, calls pywebview.api.add_point(), 
+    // updates local state, sets anchor, calls updateResults()
+});</code></pre>
+                     </div>
+                     
+                     <div class="code-block-wrapper" data-lang="javascript">
+                        <button class="copy-btn">Copy</button>
+<pre><code>window.addEventListener('keydown', (e) => {
+    // Handles Shift, Tab (opens dialog), and Escape (clears anchor)
+});</code></pre>
+                     </div>
+
+                    <p class="api-def">updateResults()</p>
+                    <p>Async function. Calls <code>pywebview.api.compute_results()</code> and updates the right panel's HTML based on the returned JSON.</p>
+
+                    <h3 id="api-frontend-drawing">The Drawing Loop</h3>
+                    <p class="api-def">redraw()</p>
+                    <p>Clears and redraws the canvas content: Grid &rarr; Bundle Shapes/Lines &rarr; Points &rarr; Snap Halo &rarr; Preview Line.</p>
+                 </section>
+             </div>
+        </div>
+        
+        <div id="page-math-hub" class="doc-page">
+             <div class="content-wrapper">
+                 <section id="math-hub">
+                     <h1>🧮 Mathematical Hub</h1>
+                     {/* ... (Keep Math details from previous version) ... */}
+                      <p>This section details the core formulas used by the `GMRGMDTEST.py` backend to perform the calculations.</p>
+                
+                    <h2 id="math-gmr">GMR / Self GMD ($D_s$)</h2>
+                    <p>The <strong>Geometric Mean Radius (GMR)</strong>, or Self GMD, represents the equivalent radius of a conductor or bundle, accounting for internal magnetic flux.</p>
+                    
+                    <h4>Single Solid Conductor</h4>
+                    <p>For one solid conductor, GMR ($r'$) is a fraction of its physical radius ($r$):</p>
+                    <img class="math-formula" src="https://latex.codecogs.com/svg.png?D_s = r' = r \times e^{-1/4} \approx r \times 0.7788" alt="GMR of single conductor">
+                    
+                    <h4>Bundled Conductors (n > 1)</h4>
+                    <p>For a bundle of <i>n</i> identical conductors (each with GMR $r'$), the bundle GMR ($D_s$) is:</p>
+                    <img class="math-formula" src="https://latex.codecogs.com/svg.png?D_s = \sqrt[n^2]{(r')^n \times (D_{12}D_{13}...D_{n-1,n})^2}" alt="Simplified GMR formula">
+                    <p>Where $D_{ij}$ is the distance between conductor $i$ and conductor $j$ within the bundle.</p>
+                    
+                    <h2 id="math-gmd">GMD / Mutual GMD ($D_{eq}$)</h2>
+                    <p>The <strong>Geometric Mean Distance (GMD)</strong>, or Mutual GMD, is the equivalent distance between two phase bundles (e.g., A and B).</p>
+                    <p>If Bundle A has <i>m</i> conductors and Bundle B has <i>n</i>, the GMD $D_{AB}$ is:</p>
+                    <img class="math-formula" src="https://latex.codecogs.com/svg.png?D_{AB} = \sqrt[mn]{\prod_{i=1}^{m} \prod_{j=1}^{n} D_{a_i b_j}}" alt="General GMD formula">
+                    <p>For a 3-phase system, the overall equivalent GMD ($D_{eq}$) is:</p>
+                    <img class="math-formula" src="https://latex.codecogs.com/svg.png?D_{eq} = \sqrt[3]{D_{AB} \cdot D_{BC} \cdot D_{AC}}" alt="Equivalent GMD">
+                    
+                    <h2 id="math-rlc">Line Parameters (R, L, C)</h2>
+                    <p>Calculated using the average $D_s$ and $D_{eq}$.</p>
+                    
+                    <h4>Resistance (R)</h4>
+                    <img class="math-formula" src="https://latex.codecogs.com/svg.png?R_{\text{per\_km}} = \frac{\rho \times 1000}{(\pi r^2) \times N_{\text{bundle}}} \; (\Omega / \text{km})" alt="Resistance formula">
+                    <p>Where $\rho$ is resistivity, $r$ is physical radius (m), $N$ is conductors per bundle.</p>
+                    
+                    <h4>Inductance (L)</h4>
+                    <img class="math-formula" src="https://latex.codecogs.com/svg.png?L_{\text{per\_km}} = \left( 2 \times 10^{-7} \ln\left(\frac{D_{eq}}{D_s}\right) \right) \times 1000 \; (\text{mH} / \text{km})" alt="Inductance formula">
+                    
+                    <h4>Capacitance (C)</h4>
+                    <img class="math-formula" src="https://latex.codecogs.com/svg.png?C_{\text{per\_km}} = \left( \frac{2 \pi \epsilon_0}{\ln\left(\frac{D_{eq}}{r_b}\right)} \right) \times 10^9 \; (\text{nF} / \text{km})" alt="Capacitance formula">
+                    <p>Where $r_b$ is the equivalent bundle radius (calculated like $D_s$ but using $r$ instead of $r'$), and $\epsilon_0 = 8.854 \times 10^{-12} \text{ F/m}$.</p>
+                 </section>
+             </div>
+        </div>
+
     </main>
 
 <script>
 document.addEventListener('DOMContentLoaded', () => {
 
+    const sidebar = document.getElementById('sidebar');
+    const navButtons = sidebar.querySelectorAll('.sidebar-nav button.nav-link');
+    const pageTargets = sidebar.querySelectorAll('[data-page-target]');
+    const contentPages = document.querySelectorAll('.doc-page');
+    const navLinks = sidebar.querySelectorAll('.sidebar-nav li[data-scroll-spy]');
+    const sections = document.querySelectorAll('.content section[id], .content h2[id], .content h3[id]');
+
+    // --- Page Switching Logic ---
+    function setActivePage(pageId) {
+        contentPages.forEach(page => {
+            page.classList.toggle('active', page.id === pageId);
+        });
+        
+        // Update sidebar active state
+        navButtons.forEach(button => {
+             const buttonPage = button.getAttribute('data-page');
+             const listItem = button.closest('li'); // Get the parent li
+             if (listItem) {
+                 listItem.classList.toggle('active', buttonPage === pageId);
+                 // Also activate parent nav items if a sub-item is active
+                 if(buttonPage === pageId) {
+                      let parent = listItem.closest('ul.sub-menu')?.closest('li[data-scroll-spy]');
+                      while(parent) {
+                          parent.classList.add('active');
+                          parent = parent.closest('ul.sub-menu')?.closest('li[data-scroll-spy]');
+                      }
+                 }
+             }
+        });
+        
+        window.scrollTo(0, 0); // Scroll to top on page change
+    }
+
+    navButtons.forEach(button => {
+        button.addEventListener('click', () => {
+            const pageId = button.getAttribute('data-page');
+            if (pageId) {
+                setActivePage(pageId);
+            }
+        });
+    });
+    
+    // Buttons outside sidebar (e.g., on homepage)
+    pageTargets.forEach(button => {
+         button.addEventListener('click', () => {
+            const pageId = button.getAttribute('data-page-target');
+            if (pageId) {
+                setActivePage(pageId);
+            }
+        });
+    });
+
     // --- Copy Button Functionality ---
     document.querySelectorAll('.copy-btn').forEach(button => {
         button.addEventListener('click', () => {
-            const pre = button.nextElementSibling;
+            const wrapper = button.closest('.code-block-wrapper');
+            const pre = wrapper.querySelector('pre');
             const code = pre.querySelector('code') || pre;
             const text = code.innerText;
 
@@ -599,55 +1009,88 @@ document.addEventListener('DOMContentLoaded', () => {
                 }, 2000);
             }).catch(err => {
                 console.error('Failed to copy: ', err);
+                button.innerText = 'Error';
+                 setTimeout(() => {
+                    button.innerText = 'Copy';
+                }, 2000);
             });
         });
     });
 
-    // --- Scroll-Spy Functionality ---
-    const sidebar = document.getElementById('sidebar');
-    const navLinks = sidebar.querySelectorAll('.sidebar-nav li');
-    const sections = document.querySelectorAll('.content section, .content h2, .content h3');
-    
-    // Create a map of section IDs to nav links
-    const navMap = {};
-    navLinks.forEach(link => {
-        const spyId = link.getAttribute('data-scroll-spy');
-        if (spyId) {
-            navMap[spyId] = link;
-        }
-    });
+    // --- Scroll-Spy Functionality (for within-page links) ---
+    // Create a map of section IDs to nav links that are *anchor links*
+    const anchorNavMap = {};
+     sidebar.querySelectorAll('.sidebar-nav a[href^="#"]').forEach(link => {
+         const href = link.getAttribute('href');
+         const targetId = href.substring(1); // Get ID without '#'
+         const targetElement = document.getElementById(targetId);
+         if(targetElement) {
+            const listItem = link.closest('li[data-scroll-spy]'); // Get the LI with the attribute
+             if(listItem) {
+                  anchorNavMap[targetId] = listItem;
+             }
+         }
+     });
 
-    // Use IntersectionObserver for efficient scroll spying
-    const observer = new IntersectionObserver((entries) => {
+    const scrollObserver = new IntersectionObserver((entries) => {
+        let bestVisibleEntry = null;
+
         entries.forEach(entry => {
-            if (entry.isIntersecting) {
-                const id = entry.target.id;
-                if (navMap[id]) {
-                    // Remove 'active' from all
-                    navLinks.forEach(link => link.classList.remove('active'));
-                    
-                    // Add 'active' to the current one
-                    let currentLink = navMap[id];
-                    currentLink.classList.add('active');
-                    
-                    // Also activate parent nav items
-                    let parent = currentLink.closest('ul')?.closest('li');
-                    while(parent) {
-                        parent.classList.add('active');
-                        parent = parent.closest('ul')?.closest('li');
-                    }
-                }
+            const id = entry.target.id;
+            if (!anchorNavMap[id] && !navMap[id]) return; // Skip if no matching nav link (page or anchor)
+
+            if (entry.isIntersecting && entry.boundingClientRect.top >= 0 && entry.boundingClientRect.top < window.innerHeight * 0.5) { // Check if top part is visible
+                 if (!bestVisibleEntry || entry.boundingClientRect.top < bestVisibleEntry.boundingClientRect.top) {
+                    bestVisibleEntry = entry;
+                 }
             }
         });
+
+        // Update active class for anchor links based on the best visible entry
+        if (bestVisibleEntry) {
+            const id = bestVisibleEntry.target.id;
+            const activePageId = document.querySelector('.doc-page.active')?.id;
+
+             // Only highlight if the section is within the currently active page
+            if (bestVisibleEntry.target.closest('.doc-page')?.id === activePageId) {
+
+                // Clear active state *only for anchor links within the current page's submenu*
+                const currentPageRootLi = sidebar.querySelector(`li[data-scroll-spy="${activePageId}"]`);
+                currentPageRootLi?.querySelectorAll('li.active').forEach(link => {
+                     // Keep the main page link active
+                     if(link !== currentPageRootLi) {
+                        link.classList.remove('active');
+                     }
+                });
+
+                // Add 'active' to the current one and its parents
+                let currentLink = anchorNavMap[id] || navMap[id]; // Prefer anchor map
+                if (currentLink) {
+                    currentLink.classList.add('active');
+                    let parent = currentLink.closest('ul.sub-menu')?.closest('li[data-scroll-spy]');
+                    while(parent) {
+                        parent.classList.add('active');
+                        parent = parent.closest('ul.sub-menu')?.closest('li[data-scroll-spy]');
+                    }
+                     // Ensure the main page link itself stays active
+                     if (currentPageRootLi && !currentPageRootLi.classList.contains('active')) {
+                         currentPageRootLi.classList.add('active');
+                     }
+                }
+            }
+        }
+
     }, {
-        rootMargin: '0px 0px -80% 0px', // Triggers when the top 20% of the section is visible
+        rootMargin: '0px 0px -50% 0px', // Adjust rootMargin: consider section active when it's in the top half
         threshold: 0
     });
 
-    // Observe all sections that have an ID
-    document.querySelectorAll('.content section[id], .content h2[id], .content h3[id]').forEach(section => {
-        observer.observe(section);
+    sections.forEach(section => {
+        scrollObserver.observe(section);
     });
+    
+     // --- Initialize: Show Home page ---
+    setActivePage('page-home'); 
 
 });
 </script>
